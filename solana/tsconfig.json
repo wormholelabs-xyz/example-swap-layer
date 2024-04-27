@@ -1,12 +1,8 @@
 {
+  "extends": "../tsconfig.json",
+  "include": ["./ts/src/**/*.ts", "./ts/test/**/*.ts", "./ts/idl/**/*.ts", "./ts/scripts/**/*.json"],
   "compilerOptions": {
-    "types": ["mocha", "chai", "node"],
-    "typeRoots": ["./node_modules/@types"],
-    "lib": ["es2020"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "target": "es2020",
-    "strict": true,
-    "esModuleInterop": true
-  }
+    "rootDir": "./",
+    "resolveJsonModule": true,
+  },
 }

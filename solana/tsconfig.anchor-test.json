@@ -1,11 +1,10 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["mocha", "chai", "node"],
-    "typeRoots": ["./node_modules/@types"],
-    "lib": ["es2020"],
-    "module": "CommonJs",
-    "target": "es2020",
-    "strict": true,
-    "esModuleInterop": true
+    "types": ["mocha", "chai", "node", "jest"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true,
+    "allowArbitraryExtensions": true,
   }
 }

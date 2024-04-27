@@ -1,5 +1,4 @@
-import * as wormholeSdk from "@certusone/wormhole-sdk";
-import { ethers } from "ethers";
+import { ChainId, encoding, isChainId } from "@wormhole-foundation/sdk-base";
 
 export const ID_DEPOSIT = 1;
 
@@ -17,7 +16,7 @@ export type DepositHeader = {
 };
 
 export type Fill = {
-    sourceChain: wormholeSdk.ChainId;
+    sourceChain: ChainId;
     orderSender: Array<number>;
     redeemer: Array<number>;
     redeemerMessage: Buffer;
@@ -51,9 +50,7 @@ export class LiquidityLayerDeposit {
         }
 
         const tokenAddress = Array.from(buf.subarray(offset, (offset += 32)));
-        const amount = BigInt(
-            ethers.BigNumber.from(buf.subarray(offset, (offset += 32))).toString(),
-        );
+        const amount = encoding.bignum.decode(buf.subarray(offset, (offset += 32)));
         const sourceCctpDomain = buf.readUInt32BE(offset);
         offset += 4;
         const destinationCctpDomain = buf.readUInt32BE(offset);
@@ -74,7 +71,7 @@ export class LiquidityLayerDeposit {
             switch (depositPayloadId) {
                 case ID_DEPOSIT_FILL: {
                     const sourceChain = payload.readUInt16BE(offset);
-                    if (!wormholeSdk.isChain(sourceChain)) {
+                    if (!isChainId(sourceChain)) {
                         throw new Error("Invalid source chain");
                     }
                     offset += 2;
@@ -136,7 +133,7 @@ export class LiquidityLayerDeposit {
 
         // Special handling w/ uint256. This value will most likely encoded in < 32 bytes, so we
         // jump ahead by 32 and subtract the length of the encoded value.
-        const encodedAmount = ethers.utils.arrayify(ethers.BigNumber.from(amount.toString()));
+        const encodedAmount = encoding.bignum.toBytes(amount, 32);
         buf.set(encodedAmount, (offset += 32) - encodedAmount.length);
 
         offset = buf.writeUInt32BE(sourceCctpDomain, offset);

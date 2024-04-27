@@ -1,42 +1,24 @@
 import * as anchor from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
-import * as wormholeSdk from "@certusone/wormhole-sdk";
 import {
-    AddressLookupTableProgram,
+    AccountMeta,
     Connection,
     Keypair,
     PublicKey,
-    SystemProgram,
-    ComputeBudgetProgram,
     TransactionInstruction,
-    AccountMeta,
 } from "@solana/web3.js";
-import { expectIxOk, hackedExpectDeepEqual } from "./helpers";
-import { FEE_UPDATER_KEYPAIR } from "./helpers";
-import { SwapLayerProgram, localnet, Custodian } from "../src/swapLayer";
-import { use as chaiUse, expect } from "chai";
-import * as tokenRouterSdk from "../../../lib/example-liquidity-layer/solana/ts/src/tokenRouter";
+import * as tokenRouterSdk from "../../../lib/example-liquidity-layer/solana/ts/src/tokenRouter/index.js";
 import {
-    LiquidityLayerDeposit,
-    LiquidityLayerMessage,
-} from "../../../lib/example-liquidity-layer/solana/ts/src/common";
-import {
-    postLiquidityLayerVaa,
     LOCALHOST,
-    PAYER_KEYPAIR,
-    OWNER_KEYPAIR,
     OWNER_ASSISTANT_KEYPAIR,
-    ETHEREUM_USDC_ADDRESS,
-    MOCK_GUARDIANS,
-    CircleAttester,
-} from "../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
-import { VaaAccount } from "../../../lib/example-liquidity-layer/solana/ts/src/wormhole";
-import { CctpTokenBurnMessage } from "../../../lib/example-liquidity-layer/solana/ts/src/cctp";
-import * as jupiter from "../src/jupiter";
-import { Whirlpool, IDL as WHIRLPOOL_IDL } from "../src/types/whirlpool";
-import { IDL as SWAP_LAYER_IDL } from "../../target/types/swap_layer";
-
-chaiUse(require("chai-as-promised"));
+    OWNER_KEYPAIR,
+    PAYER_KEYPAIR,
+} from "../../../lib/example-liquidity-layer/solana/ts/tests/helpers/index.js";
+import SWAP_LAYER_IDL from "../idl/json/swap_layer.json";
+import * as jupiter from "../src/jupiter/index.js";
+import { SwapLayerProgram, localnet } from "../src/swapLayer/index.js";
+import { IDL as WHIRLPOOL_IDL, Whirlpool } from "../src/types/whirlpool.js";
+import { FEE_UPDATER_KEYPAIR, expectIxOk } from "./helpers/index.js";
 
 const SWAP_LAYER_PROGRAM_ID = new PublicKey("AQFz751pSuxMX6PFWx9uruoVSZ3qay2Zi33MJ4NmUF2m");
 
@@ -63,7 +45,7 @@ describe("Jupiter V6 Testing", () => {
     );
 
     // Sending chain information.
-    const foreignChain = wormholeSdk.CHAINS.sepolia;
+    //const foreignChain = wormholeSdk.CHAINS.sepolia;
     const foreignEndpointAddress = Array.from(
         Buffer.alloc(32, "000000000000000000000000603541d1Cf7178C407aA7369b67CB7e0274952e2", "hex"),
     );
@@ -83,6 +65,7 @@ describe("Jupiter V6 Testing", () => {
         connection,
     });
 
+    // @ts-ignore
     const swapLayerProgram = new anchor.Program(SWAP_LAYER_IDL, SWAP_LAYER_PROGRAM_ID, {
         connection,
     });
@@ -124,7 +107,7 @@ describe("Jupiter V6 Testing", () => {
                 swapIx.data,
             );
 
-            expect(swapIx.keys).has.length(ix.keys.length);
+            expect(swapIx.keys).toHaveLength(ix.keys.length);
 
             const txSig = await expectIxOk(connection, [ix], [payer]);
         });
@@ -158,10 +141,10 @@ describe("Jupiter V6 Testing", () => {
             const ix = await swapLayerProgram.methods
                 .completeSwap(ixData)
                 .accounts({
-                    srcToken: splToken.getAssociatedTokenAddressSync(
-                        USDT_MINT_ADDRESS,
-                        payer.publicKey,
-                    ),
+                    // srcToken: splToken.getAssociatedTokenAddressSync(
+                    //     USDT_MINT_ADDRESS,
+                    //     payer.publicKey,
+                    // ),
                 })
                 .remainingAccounts(innerIx.keys)
                 .instruction();

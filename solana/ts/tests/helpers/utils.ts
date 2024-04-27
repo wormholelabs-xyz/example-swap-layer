@@ -1,24 +1,24 @@
-import { postVaaSolana, solana as wormSolana } from "@certusone/wormhole-sdk";
-import { BN } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
 import {
     AddressLookupTableAccount,
     ConfirmOptions,
     Connection,
-    Keypair,
+    MessageV0,
     PublicKey,
     Signer,
+    Transaction,
     TransactionInstruction,
     TransactionMessage,
     VersionedTransaction,
 } from "@solana/web3.js";
+import { encoding } from "@wormhole-foundation/sdk-base";
 import { expect } from "chai";
 import { execSync } from "child_process";
 import { Err, Ok } from "ts-results";
 import {
     CORE_BRIDGE_PID,
     USDC_MINT_ADDRESS,
-} from "../../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
+} from "../../../../lib/example-liquidity-layer/solana/ts/tests/helpers/index.js";
 
 async function confirmLatest(connection: Connection, signature: string) {
     return connection.getLatestBlockhash().then(({ blockhash, lastValidBlockHeight }) =>
@@ -138,6 +138,9 @@ async function debugSendAndConfirmTransaction(
             if (logError) {
                 console.log(err);
             }
+
+            logTxDetails(tx);
+
             if (err.logs !== undefined) {
                 const logs: string[] = err.logs;
                 return new Err(logs.join("\n"));
@@ -145,21 +148,6 @@ async function debugSendAndConfirmTransaction(
                 return new Err(err.message);
             }
         });
-}
-
-export async function postVaa(
-    connection: Connection,
-    payer: Keypair,
-    vaaBuf: Buffer,
-    coreBridgeAddress?: PublicKey,
-) {
-    await postVaaSolana(
-        connection,
-        new wormSolana.NodeWallet(payer).signTransaction,
-        coreBridgeAddress ?? CORE_BRIDGE_PID,
-        payer.publicKey,
-        vaaBuf,
-    );
 }
 
 export function loadProgramBpf(artifactPath: string): PublicKey {
@@ -223,4 +211,38 @@ export async function getBlockTime(connection: Connection): Promise<number> {
 
 export function hackedExpectDeepEqual(left: any, right: any) {
     expect(JSON.parse(JSON.stringify(left))).to.eql(JSON.parse(JSON.stringify(right)));
+}
+
+export function isVersionedTransaction(tx: any): tx is VersionedTransaction {
+    return (
+        (<VersionedTransaction>tx).signatures !== undefined &&
+        (<VersionedTransaction>tx).message !== undefined
+    );
+}
+
+export async function logTxDetails(transaction: Transaction | VersionedTransaction) {
+    if (isVersionedTransaction(transaction)) {
+        console.log(transaction.signatures);
+        const msg = transaction.message as MessageV0;
+        console.log("LOOKUPS", msg.addressTableLookups);
+        console.log(msg.staticAccountKeys);
+        //msg.compiledInstructions.forEach((ix) => {
+        //    // console.log("Data: ", encoding.hex.encode(ix.data));
+        //    // console.log(
+        //    //     "Keys: ",
+        //    //     ix.accountKeyIndexes.map((k) => [k, keys.get(k)!.toBase58()]),
+        //    // );
+        //});
+    } else {
+        console.log(transaction.signatures);
+        console.log(transaction.feePayer);
+        transaction.instructions.forEach((ix) => {
+            console.log("Program", ix.programId.toBase58());
+            console.log("Data: ", ix.data.toString("hex"));
+            console.log(
+                "Keys: ",
+                ix.keys.map((k) => [k, k.pubkey.toBase58()]),
+            );
+        });
+    }
 }

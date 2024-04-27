@@ -6,3 +6,4 @@ target
 node_modules
 test-ledger
 ts/tests/artifacts
+dist/

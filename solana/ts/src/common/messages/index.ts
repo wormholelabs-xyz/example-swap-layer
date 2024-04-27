@@ -1,7 +1,7 @@
-import * as wormholeSdk from "@certusone/wormhole-sdk";
-import { Fill, ID_DEPOSIT, LiquidityLayerDeposit } from "./deposit";
+import { ChainId } from "@wormhole-foundation/sdk-base";
+import { Fill, ID_DEPOSIT, LiquidityLayerDeposit } from "./deposit.js";
 
-export * from "./deposit";
+export * from "./deposit.js";
 
 export const ID_FAST_MARKET_ORDER = 11;
 export const ID_FAST_FILL = 12;
@@ -17,7 +17,7 @@ export type FastMarketOrder = {
     amountIn: bigint;
     // u64
     minAmountOut: bigint;
-    targetChain: wormholeSdk.ChainId;
+    targetChain: ChainId;
     redeemer: Array<number>;
     sender: Array<number>;
     refundAddress: Array<number>;

@@ -1,9 +1,9 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { MessageTransmitterProgram } from "../cctp";
+//import { MessageTransmitterProgram } from "../cctp";
 import { BN } from "@coral-xyz/anchor";
 
-export * from "./messages";
-export * from "./state";
+export * from "./messages/index.js";
+export * from "./state/index.js";
 
 export type Uint64 = bigint | BN | number;
 
@@ -65,21 +65,22 @@ export function vaaHashToArray(vaaHash: VaaHash): Array<number> {
     }
 }
 
-export async function reclaimCctpMessageIx(
-    messageTransmitter: MessageTransmitterProgram,
-    accounts: {
-        payer: PublicKey;
-        cctpMessage: PublicKey;
-    },
-    cctpAttestation: Buffer,
-): Promise<TransactionInstruction> {
-    const { payer, cctpMessage: messageSentEventData } = accounts;
-
-    return messageTransmitter.reclaimEventAccountIx(
-        {
-            payee: payer,
-            messageSentEventData,
-        },
-        cctpAttestation,
-    );
-}
+// export async function reclaimCctpMessageIx(
+//     messageTransmitter: MessageTransmitterProgram,
+//     accounts: {
+//         payer: PublicKey;
+//         cctpMessage: PublicKey;
+//     },
+//     cctpAttestation: Buffer,
+// ): Promise<TransactionInstruction> {
+//     const { payer, cctpMessage: messageSentEventData } = accounts;
+//
+//     return messageTransmitter.reclaimEventAccountIx(
+//         {
+//             payee: payer,
+//             messageSentEventData,
+//         },
+//         cctpAttestation,
+//     );
+// }
+//

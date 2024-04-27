@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 
 export type ExecutionParams = {
-    none?: {};
+    none?: any;
     evm?: {
         gasPrice: number;
         gasPriceMargin: number;

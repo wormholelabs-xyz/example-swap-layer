@@ -1,0 +1,9 @@
+{
+  "extends":"../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/esm",
+    "resolveJsonModule": true,
+  },
+  "include": ["src", "/node_modules/wormhole-liquidity-layer-sdk/src"],
+  "exclude": ["node_modules", "relayer", "scripts", "tests"]
+}

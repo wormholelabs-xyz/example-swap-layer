@@ -1,18 +1,19 @@
-export * from "./state";
+import { Custodian, ExecutionParams, Peer } from "./state/index.js";
+export * from "./state/index.js";
 
-import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { IDL, type SwapLayer } from "../../idl/ts/swap_layer.js";
+
+import { Connection, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { BN, Program } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
-import { IDL, SwapLayer } from "../../../target/types/swap_layer";
-import { Custodian, RelayParams, Peer } from "./state";
-import * as wormholeSdk from "@certusone/wormhole-sdk";
+import { ChainId } from "@wormhole-foundation/sdk-base";
 
 export const PROGRAM_IDS = ["AQFz751pSuxMX6PFWx9uruoVSZ3qay2Zi33MJ4NmUF2m"] as const;
 
 export type ProgramId = (typeof PROGRAM_IDS)[number];
 
 export type AddPeerArgs = {
-    chain: wormholeSdk.ChainId;
+    chain: ChainId;
     address: Array<number>;
     relayParams: RelayParams;
 };
@@ -42,7 +43,7 @@ export class SwapLayerProgram {
         return PublicKey.findProgramAddressSync([Buffer.from("custodian")], this.ID)[0];
     }
 
-    peerAddress(chain: wormholeSdk.ChainId): PublicKey {
+    peerAddress(chain: ChainId): PublicKey {
         return Peer.address(this.ID, chain);
     }
 
@@ -75,7 +76,7 @@ export class SwapLayerProgram {
         return this.program.account.custodian.fetch(addr);
     }
 
-    async fetchPeer(input: wormholeSdk.ChainId | { address: PublicKey }): Promise<Peer> {
+    async fetchPeer(input: ChainId | { address: PublicKey }): Promise<Peer> {
         const addr =
             typeof input == "object" && "address" in input
                 ? input.address
@@ -94,7 +95,7 @@ export class SwapLayerProgram {
 
         return this.program.methods
             .initialize()
-            .accounts({
+            .accountsStrict({
                 owner,
                 custodian: this.custodianAddress(),
                 ownerAssistant,
@@ -102,6 +103,7 @@ export class SwapLayerProgram {
                 feeRecipientToken: splToken.getAssociatedTokenAddressSync(this.mint, feeRecipient),
                 feeUpdater,
                 usdc: this.usdcComposite(this.mint),
+                systemProgram: SystemProgram.programId,
             })
             .instruction();
     }
@@ -119,17 +121,15 @@ export class SwapLayerProgram {
         payer ??= ownerOrAssistant;
         peer ??= this.peerAddress(args.chain);
 
-        return (
-            this.program.methods
-                // @ts-ignore
-                .addPeer(args)
-                .accounts({
-                    payer,
-                    admin: this.adminComposite(ownerOrAssistant, custodian),
-                    peer,
-                })
-                .instruction()
-        );
+        return this.program.methods
+            .addPeer(args)
+            .accountsStrict({
+                payer,
+                admin: this.adminComposite(ownerOrAssistant, custodian),
+                peer,
+                systemProgram: SystemProgram.programId,
+            })
+            .instruction();
     }
 
     async completeTransferRelayIx(
@@ -144,7 +144,7 @@ export class SwapLayerProgram {
             recipientTokenAccount?: PublicKey;
             feeRecipientToken?: PublicKey;
         },
-        fromChain?: wormholeSdk.ChainId,
+        fromChain?: ChainId,
     ) {
         let {
             payer,
@@ -172,19 +172,21 @@ export class SwapLayerProgram {
 
         return this.program.methods
             .completeTransferRelay()
-            .accounts({
+            .accountsStrict({
                 payer,
                 custodian: this.checkedCustodianComposite(),
-                completeTokenAccount: this.completeTokenAccountKey(preparedFill),
                 recipient,
                 recipientTokenAccount,
                 usdc: this.usdcComposite(this.mint),
                 beneficiary,
                 peer,
                 preparedFill,
-                feeRecipientToken,
+                completeTokenAccount: this.completeTokenAccountKey(preparedFill),
                 tokenRouterCustody,
                 tokenRouterProgram,
+                systemProgram: SystemProgram.programId,
+                tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                feeRecipientToken: feeRecipientToken!,
             })
             .instruction();
     }
@@ -200,7 +202,7 @@ export class SwapLayerProgram {
             beneficiary?: PublicKey;
             recipientTokenAccount?: PublicKey;
         },
-        fromChain?: wormholeSdk.ChainId,
+        fromChain?: ChainId,
     ) {
         let {
             payer,
@@ -225,7 +227,7 @@ export class SwapLayerProgram {
 
         return this.program.methods
             .completeTransferDirect()
-            .accounts({
+            .accountsStrict({
                 payer,
                 custodian: this.checkedCustodianComposite(),
                 beneficiary,
@@ -236,6 +238,8 @@ export class SwapLayerProgram {
                 peer,
                 tokenRouterCustody,
                 tokenRouterProgram,
+                tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
             })
             .instruction();
     }

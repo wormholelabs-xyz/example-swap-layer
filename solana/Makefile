@@ -1,5 +1,5 @@
 .PHONY: all
-all: check
+all: check _anchor-build idl
 
 .PHONY: check
 check:
@@ -8,10 +8,10 @@ check:
 .PHONY: clean
 clean:
 	anchor clean
-	rm -rf node_modules artifacts-mainnet artifacts-testnet artifacts-localnet ts/tests/artifacts
+	rm -rf artifacts-mainnet artifacts-testnet artifacts-localnet ts/tests/artifacts
 
-node_modules: package-lock.json ../lib/example-liquidity-layer/solana/node_modules
-	npm ci
+node_modules: ../lib/example-liquidity-layer/solana/node_modules
+	cd .. && npm ci
 
 .PHONY: clippy
 clippy:
@@ -25,6 +25,21 @@ lint:
 .PHONY: cargo-test
 cargo-test:
 	cargo test --workspace --all-targets --features $(NETWORK) -- --nocapture
+
+
+.PHONY: anchor-build
+_anchor-build:
+	@anchor build --arch sbf -- --features localnet
+
+
+.PHONY: idl
+idl: anchor-build 
+	$(eval VERSION=$(shell grep "const VERSION" programs/swap-layer/src/lib.rs | cut -d'"' -f2 | sed 's/\./_/g'))
+	@echo "IDL Version: $(VERSION)"
+	@ mkdir -p ts/idl/$(VERSION)/json
+	@ mkdir -p ts/idl/$(VERSION)/ts
+	@ cp -r target/idl/* ts/idl/$(VERSION)/json/
+	@ find target/types/ -name "*.ts" ! -name "*.d.ts" -exec cp {} ts/idl/$(VERSION)/ts/ \;
 
 CLONED_PROGRAMS=\
 	ts/tests/artifacts/mainnet_core_bridge.so \

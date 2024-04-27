@@ -1,2 +1,2 @@
-export * from "./Custodian";
-export * from "./Peer";
+export * from "./custodian.js";
+export * from "./peer.js";

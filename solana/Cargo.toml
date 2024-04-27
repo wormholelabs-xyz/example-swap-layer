@@ -37,7 +37,7 @@ hex-literal = "0.4.1"
 wormhole-raw-vaas = "0.2.0-alpha.2"
 wormhole-solana-consts = "0.2.0-alpha.11"
 wormhole-solana-utils = "0.2.0-alpha.15"
-wormhole-cctp-solana = "0.1.0-alpha.6"
+wormhole-cctp-solana = "0.1.0-alpha.8"
 
 [profile.release]
 overflow-checks = true

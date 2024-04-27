@@ -1,18 +1,21 @@
 {
-  "name": "@xlabs/wh-swap-layer-ts-sdk",
+  "name": "@wormhole-foundation/sdk-evm-idk",
   "version": "1.0.0",
   "description": "",
   "main": "lib/cjs/index.js",
   "module": "lib/esm/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json"
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build": "npm run build:esm && npm run build:cjs"
   },
   "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@wormhole-foundation/sdk-base": "^0.4.0-beta.0",
-    "@wormhole-foundation/sdk-definitions": "^0.4.0-beta.0",
-    "@wormhole-foundation/connect-sdk-evm": "^0.4.0-beta.0",
+    "@wormhole-foundation/sdk-base": "^0.6.1",
+    "@wormhole-foundation/sdk-definitions": "^0.6.1",
+    "@wormhole-foundation/sdk-evm": "^0.6.1"
+  },
+  "devDependencies": {
     "typescript": "^5.3.3"
   }
 }

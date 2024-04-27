@@ -1,29 +1,30 @@
-import { ChainName, coalesceChainId, parseVaa } from "@certusone/wormhole-sdk";
-import { MockEmitter, MockGuardians } from "@certusone/wormhole-sdk/lib/cjs/mock";
-import { derivePostedVaaKey } from "@certusone/wormhole-sdk/lib/cjs/solana/wormhole";
+import { Chain } from "@wormhole-foundation/sdk-base";
+import { mocks } from "@wormhole-foundation/sdk-definitions/testing";
+import { SolanaWormholeCore, utils } from "@wormhole-foundation/sdk-solana-core";
+
 import { Connection, Keypair } from "@solana/web3.js";
 import { ethers } from "ethers";
 import { LiquidityLayerMessage } from "../../src/common";
-import { CORE_BRIDGE_PID, GUARDIAN_KEY } from "./consts";
-import { postVaa, getBlockTime } from "./utils";
+import { CORE_BRIDGE_PID } from "./consts";
+import { getBlockTime } from "./utils";
+import { UniversalAddress, buildConfig } from "@wormhole-foundation/sdk-definitions";
 
 export async function postLiquidityLayerVaa(
     connection: Connection,
     payer: Keypair,
-    guardians: MockGuardians,
+    guardians: mocks.MockGuardians,
     foreignEmitterAddress: Array<number>,
     sequence: bigint,
     message: LiquidityLayerMessage | Buffer,
-    args: { sourceChain?: ChainName; timestamp?: number } = {},
+    args: { sourceChain?: Chain; timestamp?: number } = {},
 ) {
-    let { sourceChain, timestamp } = args;
-    sourceChain ??= "ethereum";
-    timestamp ??= await getBlockTime(connection);
+    const sourceChain = args.sourceChain ?? "Ethereum";
+    const timestamp = args.timestamp ?? (await getBlockTime(connection));
 
-    const foreignEmitter = new MockEmitter(
-        Buffer.from(foreignEmitterAddress).toString("hex"),
-        coalesceChainId(sourceChain ?? "ethereum"),
-        Number(sequence - 1n),
+    const foreignEmitter = new mocks.MockEmitter(
+        new UniversalAddress(new Uint8Array(foreignEmitterAddress)),
+        sourceChain,
+        sequence,
     );
 
     const published = foreignEmitter.publishMessage(
@@ -32,35 +33,38 @@ export async function postLiquidityLayerVaa(
         0, // consistencyLevel
         timestamp,
     );
-    const vaaBuf = guardians.addSignatures(published, [0]);
+    const vaa = guardians.addSignatures(published, [0]);
 
-    await postVaa(connection, payer, vaaBuf);
+    const core = await SolanaWormholeCore.fromRpc(connection, buildConfig("Devnet"));
+    const txs = core.postVaa(payer, vaa);
+    console.log("Submitme plz", txs);
 
-    return derivePostedVaaKey(CORE_BRIDGE_PID, parseVaa(vaaBuf).hash);
+    return utils.derivePostedVaaKey(CORE_BRIDGE_PID, Buffer.from(vaa.hash));
 }
 
-export class CircleAttester {
-    attester: ethers.utils.SigningKey;
-
-    constructor() {
-        this.attester = new ethers.utils.SigningKey("0x" + GUARDIAN_KEY);
-    }
-
-    createAttestation(message: Buffer | Uint8Array) {
-        const signature = this.attester.signDigest(ethers.utils.keccak256(message));
-
-        const attestation = Buffer.alloc(65);
-
-        let offset = 0;
-        attestation.set(ethers.utils.arrayify(signature.r), offset);
-        offset += 32;
-        attestation.set(ethers.utils.arrayify(signature.s), offset);
-        offset += 32;
-
-        const recoveryId = signature.recoveryParam;
-        attestation.writeUInt8(recoveryId < 27 ? recoveryId + 27 : recoveryId, offset);
-        offset += 1;
-
-        return attestation;
-    }
-}
+//export class CircleAttester {
+//    attester: ethers.utils.SigningKey;
+//
+//    constructor() {
+//        this.attester = new ethers.utils.SigningKey("0x" + GUARDIAN_KEY);
+//    }
+//
+//    createAttestation(message: Buffer | Uint8Array) {
+//        const signature = this.attester.signDigest(ethers.utils.keccak256(message));
+//
+//        const attestation = Buffer.alloc(65);
+//
+//        let offset = 0;
+//        attestation.set(ethers.utils.arrayify(signature.r), offset);
+//        offset += 32;
+//        attestation.set(ethers.utils.arrayify(signature.s), offset);
+//        offset += 32;
+//
+//        const recoveryId = signature.recoveryParam;
+//        attestation.writeUInt8(recoveryId < 27 ? recoveryId + 27 : recoveryId, offset);
+//        offset += 1;
+//
+//        return attestation;
+//    }
+//}
+//
