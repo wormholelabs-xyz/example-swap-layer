@@ -1,11 +1,11 @@
-import { Custodian, ExecutionParams, Peer } from "./state/index.js";
+import { Custodian, ExecutionParams, Peer, RelayParams } from "./state/index.js";
 export * from "./state/index.js";
 
 import { IDL, type SwapLayer } from "../../idl/ts/swap_layer.js";
 
-import { Connection, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { BN, Program } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
+import { Connection, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { ChainId } from "@wormhole-foundation/sdk-base";
 
 export const PROGRAM_IDS = ["AQFz751pSuxMX6PFWx9uruoVSZ3qay2Zi33MJ4NmUF2m"] as const;
@@ -15,8 +15,11 @@ export type ProgramId = (typeof PROGRAM_IDS)[number];
 export type AddPeerArgs = {
     chain: ChainId;
     address: Array<number>;
-    relayParams: RelayParams;
+    executionParams: ExecutionParams;
+    baseFee: number;
+    maxGasDropoff: BN;
 };
+
 export class SwapLayerProgram {
     private _programId: ProgramId;
     private _mint: PublicKey;
@@ -44,7 +47,9 @@ export class SwapLayerProgram {
     }
 
     peerAddress(chain: ChainId): PublicKey {
-        return Peer.address(this.ID, chain);
+        const encodedChain = Buffer.alloc(2);
+        encodedChain.writeUInt16BE(chain);
+        return PublicKey.findProgramAddressSync([Buffer.from("peer"), encodedChain], this.ID)[0];
     }
 
     usdcComposite(mint?: PublicKey): { mint: PublicKey } {

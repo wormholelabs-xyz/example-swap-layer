@@ -5,9 +5,9 @@ import { SolanaWormholeCore, utils } from "@wormhole-foundation/sdk-solana-core"
 import { Connection, Keypair } from "@solana/web3.js";
 import { ethers } from "ethers";
 import { LiquidityLayerMessage } from "../../src/common";
-import { CORE_BRIDGE_PID } from "./consts";
 import { getBlockTime } from "./utils";
 import { UniversalAddress, buildConfig } from "@wormhole-foundation/sdk-definitions";
+import { CORE_BRIDGE_PID } from "../../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
 
 export async function postLiquidityLayerVaa(
     connection: Connection,

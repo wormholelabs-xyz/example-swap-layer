@@ -8,7 +8,6 @@ import {
     PublicKey,
     SystemProgram,
 } from "@solana/web3.js";
-import { use as chaiUse, expect } from "chai";
 import * as matchingEngineSdk from "../../../lib/example-liquidity-layer/solana/ts/src/matchingEngine";
 import { encoding, toChainId } from "@wormhole-foundation/sdk-base";
 import { CctpTokenBurnMessage } from "../../../lib/example-liquidity-layer/solana/ts/src/cctp/index.js";
@@ -36,6 +35,7 @@ import {
     getUsdcAtaBalance,
     hackedExpectDeepEqual,
 } from "./helpers/index.js";
+import { BN } from "@coral-xyz/anchor";
 
 describe("Swap Layer", () => {
     const connection = new Connection(LOCALHOST, "processed");
@@ -180,18 +180,16 @@ describe("Swap Layer", () => {
                     {
                         chain: foreignChain,
                         address: foreignSwapLayerAddress,
-                        relayParams: {
-                            baseFee,
-                            nativeTokenPrice: gasTokenPrice,
-                            maxGasDropoff,
-                            gasDropoffMargin: margin,
-                            executionParams: {
-                                evm: {
-                                    gasPrice,
-                                    gasPriceMargin: margin,
-                                },
+                        executionParams: {
+                            evm: {
+                                gasPrice,
+                                gasPriceMargin: margin,
+                                gasTokenPrice: new BN(0),
+                                updateThreshold: 0,
                             },
                         },
+                        baseFee,
+                        maxGasDropoff: new BN(0),
                     },
                 );
 
