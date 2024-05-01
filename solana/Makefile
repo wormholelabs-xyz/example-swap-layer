@@ -17,8 +17,8 @@ clean:
 	anchor clean
 	rm -rf node_modules artifacts-mainnet artifacts-testnet artifacts-localnet ts/tests/artifacts
 
-node_modules: package-lock.json ../lib/example-liquidity-layer/solana/node_modules
-	npm ci
+node_modules: ../package-lock.json ../lib/example-liquidity-layer/solana/node_modules
+	cd .. && npm ci
 
 .PHONY: clippy
 clippy:
