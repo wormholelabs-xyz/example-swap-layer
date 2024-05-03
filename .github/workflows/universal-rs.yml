@@ -37,7 +37,7 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@clippy
-      - run: cd universal/rs && cargo clippy --workspace --all-targets
+      - run: cd universal/rs && cargo clippy --workspace --all-targets --all-features
         env:
           RUSTFLAGS: -Dwarnings
 
