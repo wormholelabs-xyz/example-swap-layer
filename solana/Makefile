@@ -21,7 +21,7 @@ clean:
 fast-transfer-sync:
 	cd .. && $(MAKE) fast-transfer-sync
 
-node_modules: package-lock.json
+node_modules: ../package-lock.json
 	cd .. && npm ci
 
 .PHONY: clippy
