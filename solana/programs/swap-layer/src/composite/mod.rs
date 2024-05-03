@@ -4,6 +4,9 @@ use common::admin::utils::assistant;
 use common::USDC_MINT;
 use std::ops::Deref;
 
+use common::
+    admin::utils::{assistant::only_authorized, ownable::only_owner};
+
 #[derive(Accounts)]
 pub struct Usdc<'info> {
     /// CHECK: This address must equal [USDC_MINT](common::USDC_MINT).
@@ -37,6 +40,39 @@ impl<'info> Deref for CheckedCustodian<'info> {
 }
 
 #[derive(Accounts)]
+pub struct OwnerOnly<'info> {
+    #[account(
+        constraint = only_owner(
+            &custodian,
+            &owner,
+            error!(SwapLayerError::OwnerOnly)
+        )?
+    )]
+    pub owner: Signer<'info>,
+
+    pub custodian: CheckedCustodian<'info>,
+}
+
+#[derive(Accounts)]
+pub struct OwnerOnlyMut<'info> {
+    #[account(
+        constraint = only_owner(
+            &custodian,
+            &owner,
+            error!(SwapLayerError::OwnerOnly)
+        )?
+    )]
+    pub owner: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [Custodian::SEED_PREFIX],
+        bump = Custodian::BUMP,
+    )]
+    pub custodian: Account<'info, Custodian>,
+}
+
+#[derive(Accounts)]
 pub struct Admin<'info> {
     #[account(
         constraint = assistant::only_authorized(
@@ -48,4 +84,23 @@ pub struct Admin<'info> {
     pub owner_or_assistant: Signer<'info>,
 
     pub custodian: CheckedCustodian<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AdminMut<'info> {
+    #[account(
+        constraint = only_authorized(
+            &custodian,
+            &owner_or_assistant,
+            error!(SwapLayerError::OwnerOrAssistantOnly)
+        )?
+    )]
+    pub owner_or_assistant: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [Custodian::SEED_PREFIX],
+        bump = Custodian::BUMP,
+    )]
+    pub custodian: Account<'info, Custodian>,
 }
