@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -34,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -49,6 +53,8 @@ jobs:
     # container: backpackapp/build:v0.30.0
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: metadaoproject/setup-anchor@v2
         with:
           node-version: "20.11.0"
