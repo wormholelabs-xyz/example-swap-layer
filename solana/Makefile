@@ -17,6 +17,10 @@ clean:
 	anchor clean
 	rm -rf node_modules artifacts-mainnet artifacts-testnet artifacts-localnet ts/tests/artifacts
 
+.PHONY: fast-transfer-sync
+fast-transfer-sync:
+	cd .. && $(MAKE) fast-transfer-sync
+
 node_modules: package-lock.json ../lib/example-liquidity-layer/solana/node_modules
 	npm ci
 
@@ -25,12 +29,12 @@ clippy:
 	cargo clippy --workspace --no-deps --all-targets --all-features -- -Dwarnings
 
 .PHONY: lint
-lint:
+lint: fast-transfer-sync
 	cargo fmt --check
 	$(MAKE) clippy
 
 .PHONY: cargo-test
-cargo-test:
+cargo-test: fast-transfer-sync
 	cargo test --workspace --all-targets --features $(NETWORK)
 
 .PHONY: anchor-test
