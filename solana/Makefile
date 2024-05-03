@@ -21,7 +21,7 @@ clean:
 fast-transfer-sync:
 	cd .. && $(MAKE) fast-transfer-sync
 
-node_modules: package-lock.json ../lib/example-liquidity-layer/solana/node_modules
+node_modules: package-lock.json
 	npm ci
 
 .PHONY: clippy
