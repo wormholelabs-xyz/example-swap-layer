@@ -1,2 +1,8 @@
-lib/example-liquidity-layer/solana/node_modules:
-	cd lib/example-liquidity-layer/solana && $(MAKE) node_modules
+
+.PHONY: clean-fast-transfer
+fast-transfer-clean:
+	cd lib/example-liquidity-layer/solana && $(MAKE) clean
+
+fast-transfer-setup:
+	git submodule sync --recursive
+	cd lib/example-liquidity-layer/solana && $(MAKE) anchor-test-setup

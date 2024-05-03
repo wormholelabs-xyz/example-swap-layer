@@ -34,11 +34,9 @@ cargo-test:
 	cargo test --workspace --all-targets --features $(NETWORK)
 
 .PHONY: anchor-test
-anchor-test: node_modules $(CLONED_PROGRAMS) ../lib/example-liquidity-layer/solana/artifacts-localnet
+anchor-test: node_modules $(CLONED_PROGRAMS)
+	cd .. && $(MAKE) fast-transfer-setup
 	anchor test -- --features integration-test
-
-../lib/example-liquidity-layer/solana/node_modules:
-	cd ../lib/example-liquidity-layer/solana && $(MAKE) node_modules
 
 .PHONY: cargo-test-all
 cargo-test-all:
