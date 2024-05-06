@@ -404,15 +404,10 @@ describe("Swap Layer", () => {
             });
 
             describe("Update", () => {
-                const createUpdatePeerIx = (opts?: {
-                    owner?: PublicKey;
-                    peer?: PublicKey;
-                    args?: AddPeerArgs;
-                }) =>
+                const createUpdatePeerIx = (opts?: { owner?: PublicKey; args?: AddPeerArgs }) =>
                     swapLayer.updatePeerIx(
                         {
                             owner: opts?.owner ?? payer.publicKey,
-                            peer: opts?.peer ?? undefined,
                         },
                         opts?.args ?? {
                             chain: foreignChain,
