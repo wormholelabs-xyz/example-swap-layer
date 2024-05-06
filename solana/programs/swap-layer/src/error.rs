@@ -29,17 +29,17 @@ pub enum SwapLayerError {
     InvalidUpdateThreshold = 0x203,
     InvalidNativeTokenPrice = 0x204,
     InvalidMargin = 0x205,
-    EvmGasCalculationFailed = 0x206, 
+    EvmGasCalculationFailed = 0x206,
 
     #[msg("Jupiter V6 Authority ID must be >= 0 and < 8")]
     InvalidJupiterV6AuthorityId = 0x300,
     SameMint = 0x302,
 
-     // Ownership
-     NoTransferOwnershipRequest = 0x400,
-     NotPendingOwner = 0x401,
-     InvalidNewOwner = 0x402,
-     AlreadyOwner = 0x403,
-     OwnerOnly = 0x404,
-     OwnerOrAssistantOnly = 0x405,
+    // Ownership
+    NoTransferOwnershipRequest = 0x400,
+    NotPendingOwner = 0x401,
+    InvalidNewOwner = 0x402,
+    AlreadyOwner = 0x403,
+    OwnerOnly = 0x404,
+    OwnerOrAssistantOnly = 0x405,
 }

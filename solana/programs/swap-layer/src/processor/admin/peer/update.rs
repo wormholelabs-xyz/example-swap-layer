@@ -1,7 +1,4 @@
-use crate::{
-    composite::*,
-    state::Peer,
-};
+use crate::{composite::*, state::Peer};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]

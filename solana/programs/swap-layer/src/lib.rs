@@ -33,7 +33,7 @@ pub mod swap_layer {
         processor::update_peer(ctx, args)
     }
 
-     /// This instruction sets the `pending_owner` field in the `Custodian` account. This instruction
+    /// This instruction sets the `pending_owner` field in the `Custodian` account. This instruction
     /// can only be called by the `owner`. The `pending_owner` address must be valid, meaning it
     /// cannot be the zero address or the current owner.
     /// # Arguments
@@ -90,7 +90,10 @@ pub mod swap_layer {
         processor::update_fee_updater(ctx)
     }
 
-    pub fn update_relay_parameters(ctx: Context<UpdateRelayParameters>, args: UpdateRelayParametersArgs) -> Result<()> {
+    pub fn update_relay_parameters(
+        ctx: Context<UpdateRelayParameters>,
+        args: UpdateRelayParametersArgs,
+    ) -> Result<()> {
         processor::update_relay_parameters(ctx, args)
     }
 

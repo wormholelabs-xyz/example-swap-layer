@@ -4,13 +4,10 @@ pub use add::*;
 mod update;
 pub use update::*;
 
-use common::wormhole_cctp_solana::wormhole::SOLANA_CHAIN;
-use crate::{
-    error::SwapLayerError,
-    state::Peer,
-};
-use anchor_lang::prelude::*;
 use crate::utils::relay_parameters::verify_relay_params;
+use crate::{error::SwapLayerError, state::Peer};
+use anchor_lang::prelude::*;
+use common::wormhole_cctp_solana::wormhole::SOLANA_CHAIN;
 
 pub fn handle_add_peer(peer: &mut Account<Peer>, args: AddPeerArgs) -> Result<()> {
     require!(
@@ -24,7 +21,7 @@ pub fn handle_add_peer(peer: &mut Account<Peer>, args: AddPeerArgs) -> Result<()
 
     peer.chain = args.chain;
     peer.address = args.address;
-    peer.relay_params = args.relay_params; 
+    peer.relay_params = args.relay_params;
 
     Ok(())
 }

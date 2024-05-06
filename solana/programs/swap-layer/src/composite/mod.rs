@@ -4,8 +4,7 @@ use common::admin::utils::assistant;
 use common::USDC_MINT;
 use std::ops::Deref;
 
-use common::
-    admin::utils::{assistant::only_authorized, ownable::only_owner};
+use common::admin::utils::{assistant::only_authorized, ownable::only_owner};
 
 #[derive(Accounts)]
 pub struct Usdc<'info> {

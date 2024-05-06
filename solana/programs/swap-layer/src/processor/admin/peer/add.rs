@@ -4,7 +4,6 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 
-
 #[derive(Accounts)]
 #[instruction(args: AddPeerArgs)]
 pub struct AddPeer<'info> {

@@ -1,6 +1,9 @@
-use anchor_lang::prelude::*;
-use crate::{composite::*, state::{Peer, RelayParams}};
 use crate::utils::relay_parameters::verify_relay_params;
+use crate::{
+    composite::*,
+    state::{Peer, RelayParams},
+};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 #[instruction(args: UpdateRelayParametersArgs)]
@@ -15,7 +18,7 @@ pub struct UpdateRelayParameters<'info> {
         ],
         bump,
     )]
-    peer: Account<'info, Peer>, 
+    peer: Account<'info, Peer>,
 }
 
 #[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone)]
@@ -24,7 +27,10 @@ pub struct UpdateRelayParametersArgs {
     pub relay_params: RelayParams,
 }
 
-pub fn update_relay_parameters(ctx: Context<UpdateRelayParameters>, args: UpdateRelayParametersArgs) -> Result<()> {
+pub fn update_relay_parameters(
+    ctx: Context<UpdateRelayParameters>,
+    args: UpdateRelayParametersArgs,
+) -> Result<()> {
     verify_relay_params(&args.relay_params)?;
 
     let peer = &mut ctx.accounts.peer;
