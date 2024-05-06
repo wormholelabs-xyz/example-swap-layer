@@ -10,6 +10,7 @@ pub struct UpdatePeer<'info> {
     admin: OwnerOnly<'info>,
 
     #[account(
+        mut,
         seeds = [
             Peer::SEED_PREFIX,
             &args.chain.to_be_bytes()

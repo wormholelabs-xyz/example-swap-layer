@@ -104,3 +104,22 @@ pub struct AdminMut<'info> {
     )]
     pub custodian: Account<'info, Custodian>,
 }
+
+#[derive(Accounts)]
+pub struct FeeUpdater<'info> {
+    #[account(
+        constraint = {
+            require!(
+                fee_updater.key() == custodian.fee_updater.key() ||
+                fee_updater.key() == custodian.owner.key() ||
+                fee_updater.key() == custodian.owner_assistant.key(),
+                SwapLayerError::InvalidFeeUpdater
+            );
+
+            true
+        }
+    )]
+    pub fee_updater: Signer<'info>,
+
+    pub custodian: CheckedCustodian<'info>,
+}
