@@ -31,9 +31,17 @@ pub enum SwapLayerError {
     InvalidMargin = 0x205,
     EvmGasCalculationFailed = 0x206,
 
+    // Swap
+    SwapPastDeadline = 0x300,
+    InvalidLimitAmount = 0x302,
+    InvalidSwapType = 0x304,
+
+    // Jupiter V6
     #[msg("Jupiter V6 Authority ID must be >= 0 and < 8")]
-    InvalidJupiterV6AuthorityId = 0x300,
-    SameMint = 0x302,
+    InvalidJupiterV6AuthorityId = 0x320,
+    SameMint = 0x322,
+    InvalidDestinationMint = 0x324,
+    JupiterV6DexProgramMismatch = 0x326,
 
     // Ownership
     NoTransferOwnershipRequest = 0x400,
