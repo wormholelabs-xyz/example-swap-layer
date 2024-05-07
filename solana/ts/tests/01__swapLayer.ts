@@ -1325,8 +1325,7 @@ describe("Swap Layer", () => {
                     );
                     const { vaa, message } = result!;
 
-                    const vaaAccount = await VaaAccount.fetch(connection, vaa);
-                    const preparedFill = tokenRouter.preparedFillAddress(vaaAccount.digest());
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
                     const beneficiary = Keypair.generate();
 
                     // Balance check.
@@ -1384,8 +1383,7 @@ describe("Swap Layer", () => {
                     );
                     const { vaa, message } = result!;
 
-                    const vaaAccount = await VaaAccount.fetch(connection, vaa);
-                    const preparedFill = tokenRouter.preparedFillAddress(vaaAccount.digest());
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
                     const beneficiary = Keypair.generate();
 
                     // Balance check.
@@ -1449,8 +1447,7 @@ describe("Swap Layer", () => {
                     );
                     const { vaa, message } = result!;
 
-                    const vaaAccount = await VaaAccount.fetch(connection, vaa);
-                    const preparedFill = tokenRouter.preparedFillAddress(vaaAccount.digest());
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
                     const beneficiary = Keypair.generate();
 
                     // Balance check.
@@ -1593,8 +1590,7 @@ describe("Swap Layer", () => {
                     );
                     const { vaa, message } = result!;
 
-                    const vaaAccount = await VaaAccount.fetch(connection, vaa);
-                    const preparedFill = tokenRouter.preparedFillAddress(vaaAccount.digest());
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
                     const beneficiary = Keypair.generate();
 
                     // Balance check.
@@ -1645,8 +1641,7 @@ describe("Swap Layer", () => {
                     );
                     const { vaa, message } = result!;
 
-                    const vaaAccount = await VaaAccount.fetch(connection, vaa);
-                    const preparedFill = tokenRouter.preparedFillAddress(vaaAccount.digest());
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
                     const beneficiary = Keypair.generate();
 
                     // Balance check.
