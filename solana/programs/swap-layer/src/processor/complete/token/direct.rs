@@ -9,7 +9,9 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token, token};
-use swap_layer_messages::types::{JupiterV6SwapParameters, OutputSwap, OutputToken, SwapType};
+use swap_layer_messages::types::{
+    JupiterV6SwapParameters, OutputSwap, OutputToken, RedeemMode, SwapType,
+};
 
 #[derive(Accounts)]
 pub struct CompleteSwap<'info> {
@@ -20,6 +22,14 @@ pub struct CompleteSwap<'info> {
     #[account(
         constraint = {
             let swap_msg = consume_swap_layer_fill.read_message_unchecked();
+
+            require!(
+                matches!(
+                    swap_msg.redeem_mode,
+                    RedeemMode::Direct,
+                ),
+                SwapLayerError::InvalidRedeemMode
+            );
 
             require_keys_eq!(
                 recipient.key(),
