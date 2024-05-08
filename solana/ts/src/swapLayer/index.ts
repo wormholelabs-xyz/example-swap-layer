@@ -68,21 +68,6 @@ export class SwapLayerProgram {
         );
     }
 
-    tokenRouterProgram(): tokenRouterSdk.TokenRouterProgram {
-        switch (this._programId) {
-            case localnet(): {
-                return new tokenRouterSdk.TokenRouterProgram(
-                    this.program.provider.connection,
-                    tokenRouterSdk.localnet(),
-                    this.mint,
-                );
-            }
-            default: {
-                throw new Error("unsupported network");
-            }
-        }
-    }
-
     custodianAddress(): PublicKey {
         return PublicKey.findProgramAddressSync([Buffer.from("custodian")], this.ID)[0];
     }
@@ -511,13 +496,6 @@ export class SwapLayerProgram {
 
     tokenRouterProgram(): tokenRouterSdk.TokenRouterProgram {
         switch (this._programId) {
-            // case testnet(): {
-            //     return new tokenRouterSdk.TokenRouterProgram(
-            //         this.program.provider.connection,
-            //         tokenRouterSdk.testnet(),
-            //         this.mint,
-            //     );
-            // }
             case localnet(): {
                 return new tokenRouterSdk.TokenRouterProgram(
                     this.program.provider.connection,

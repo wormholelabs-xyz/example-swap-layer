@@ -1513,7 +1513,12 @@ describe("Swap Layer", () => {
                         foreignChain,
                     );
 
-                    await expectIxErr(connection, [transferIx], [payer], "InvalidFeeRecipient");
+                    await expectIxErr(
+                        connection,
+                        [transferIx],
+                        [payer],
+                        "fee_recipient_token. Error Code: ConstraintAddress",
+                    );
                 });
 
                 it("Cannot Complete Transfer (Peer Doesn't Exist)", async function () {

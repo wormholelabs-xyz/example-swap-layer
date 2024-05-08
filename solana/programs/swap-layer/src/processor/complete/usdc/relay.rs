@@ -68,7 +68,7 @@ pub struct CompleteTransferRelay<'info> {
 
     #[account(
         mut,
-        address = custodian.fee_recipient_token,
+        address = consume_swap_layer_fill.custodian.fee_recipient_token,
     )]
     fee_recipient_token: Account<'info, token::TokenAccount>,
 
