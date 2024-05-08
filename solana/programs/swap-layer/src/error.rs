@@ -40,8 +40,12 @@ pub enum SwapLayerError {
     #[msg("Jupiter V6 Authority ID must be >= 0 and < 8")]
     InvalidJupiterV6AuthorityId = 0x320,
     SameMint = 0x322,
-    InvalidDestinationMint = 0x324,
-    JupiterV6DexProgramMismatch = 0x326,
+    InvalidSwapAuthority = 0x330,
+    InvalidSourceSwapToken = 0x332,
+    InvalidDestinationSwapToken = 0x333,
+    InvalidSourceMint = 0x334,
+    InvalidDestinationMint = 0x335,
+    JupiterV6DexProgramMismatch = 0x340,
 
     // Ownership
     NoTransferOwnershipRequest = 0x400,

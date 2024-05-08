@@ -504,7 +504,6 @@ export class SwapLayerProgram {
                 ),
                 recipient,
                 recipientTokenAccount,
-                usdc: this.usdcComposite(this.mint),
                 tokenProgram: splToken.TOKEN_PROGRAM_ID,
             })
             .instruction();

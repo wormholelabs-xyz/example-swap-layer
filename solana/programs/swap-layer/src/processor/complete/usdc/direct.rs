@@ -30,7 +30,7 @@ pub struct CompleteTransferDirect<'info> {
 
     #[account(
         mut,
-        associated_token::mint = usdc,
+        associated_token::mint = common::USDC_MINT,
         associated_token::authority = recipient
     )]
     /// Recipient associated token account. The recipient authority check
@@ -41,8 +41,6 @@ pub struct CompleteTransferDirect<'info> {
     /// CHECK: This account must be the owner of the recipient token account. The
     /// recipient token account must be encoded in the prepared fill.
     recipient: UncheckedAccount<'info>,
-
-    usdc: Usdc<'info>,
 
     token_program: Program<'info, token::Token>,
 }

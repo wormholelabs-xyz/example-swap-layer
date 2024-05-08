@@ -41,7 +41,7 @@ pub struct CompleteTransferRelay<'info> {
         init,
         payer = payer,
         seeds = [
-            crate::SEED_PREFIX_COMPLETE,
+            crate::COMPLETE_TOKEN_SEED_PREFIX,
             consume_swap_layer_fill.key().as_ref(),
         ],
         bump,
