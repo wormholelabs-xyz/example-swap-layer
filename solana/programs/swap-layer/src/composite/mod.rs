@@ -179,43 +179,20 @@ pub struct ConsumeSwapLayerFill<'info> {
     ///
     /// CHECK: Mutable. Seeds must be \["custody"\, source_chain.to_be_bytes()].
     #[account(mut)]
-    fill_custody_token: Account<'info, token::TokenAccount>,
+    pub fill_custody_token: Account<'info, token::TokenAccount>,
 
     associated_peer: RegisteredPeer<'info>,
 
     /// CHECK: Recipient of lamports from closing the prepared_fill account.
     #[account(mut)]
-    beneficiary: UncheckedAccount<'info>,
+    pub beneficiary: UncheckedAccount<'info>,
 
-    token_router_program: Program<'info, token_router::program::TokenRouter>,
+    pub token_router_program: Program<'info, token_router::program::TokenRouter>,
 }
 
 impl<'info> ConsumeSwapLayerFill<'info> {
     pub fn read_message_unchecked(&self) -> SwapMessageV1 {
         SwapMessageV1::read_slice(&self.fill.redeemer_message).unwrap()
-    }
-
-    pub fn consume_prepared_fill(
-        &self,
-        dst_token: AccountInfo<'info>,
-        token_program: AccountInfo<'info>,
-    ) -> Result<u64> {
-        let amount = self.fill_custody_token.amount;
-
-        token_router::cpi::consume_prepared_fill(CpiContext::new_with_signer(
-            self.token_router_program.to_account_info(),
-            token_router::cpi::accounts::ConsumePreparedFill {
-                redeemer: self.custodian.to_account_info(),
-                beneficiary: self.beneficiary.to_account_info(),
-                prepared_fill: self.fill.to_account_info(),
-                dst_token,
-                prepared_custody_token: self.fill_custody_token.to_account_info(),
-                token_program,
-            },
-            &[Custodian::SIGNER_SEEDS],
-        ))?;
-
-        Ok(amount)
     }
 }
 

@@ -1,6 +1,8 @@
 use crate::{
-    composite::*, error::SwapLayerError, state::Custodian,
-    utils::gas_dropoff::denormalize_gas_dropoff,
+    composite::*,
+    error::SwapLayerError,
+    state::Custodian,
+    utils::{self},
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token;
@@ -89,7 +91,7 @@ pub fn complete_transfer_relay(ctx: Context<CompleteTransferRelay>) -> Result<()
             relaying_fee,
         } => handle_complete_transfer_relay(
             ctx,
-            denormalize_gas_dropoff(gas_dropoff),
+            utils::gas_dropoff::denormalize_gas_dropoff(gas_dropoff),
             relaying_fee.into(),
         ),
         _ => err!(SwapLayerError::InvalidRedeemMode),
@@ -105,7 +107,8 @@ fn handle_complete_transfer_relay(
     let token_program = &ctx.accounts.token_program;
 
     // CPI Call token router.
-    let fill_amount = ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
+    let fill_amount = utils::token_router::consume_prepared_fill(
+        &ctx.accounts.consume_swap_layer_fill,
         complete_token.to_account_info(),
         token_program.to_account_info(),
     )?;

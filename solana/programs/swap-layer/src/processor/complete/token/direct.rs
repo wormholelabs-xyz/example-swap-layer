@@ -2,6 +2,7 @@ use crate::{
     composite::*,
     error::SwapLayerError,
     utils::{
+        self,
         jupiter_v6::{self, cpi::SharedAccountsRouteArgs},
         AnchorInstructionData,
     },
@@ -104,7 +105,8 @@ where
     'c: 'info,
 {
     // Consume prepared fill.
-    let usdc_amount_in = ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
+    let usdc_amount_in = utils::token_router::consume_prepared_fill(
+        &ctx.accounts.consume_swap_layer_fill,
         ctx.accounts.complete_token.to_account_info(),
         ctx.accounts.token_program.to_account_info(),
     )?;
