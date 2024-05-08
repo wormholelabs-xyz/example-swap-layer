@@ -1,4 +1,3 @@
-import * as wormholeSdk from "@certusone/wormhole-sdk";
 import { BN } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
 import {
@@ -10,12 +9,13 @@ import {
     TransactionInstruction,
 } from "@solana/web3.js";
 import { use as chaiUse, expect } from "chai";
-import { CctpTokenBurnMessage } from "../../../lib/example-liquidity-layer/solana/ts/src/cctp";
+import { CctpTokenBurnMessage } from "@wormhole-foundation/liquidity-layer-solana/cctp";
 import {
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
-} from "../../../lib/example-liquidity-layer/solana/ts/src/common";
-import * as tokenRouterSdk from "../../../lib/example-liquidity-layer/solana/ts/src/tokenRouter";
+} from "@wormhole-foundation/liquidity-layer-solana/common";
+import * as matchingEngineSdk from "@wormhole-foundation/liquidity-layer-solana/matchingEngine";
+import * as tokenRouterSdk from "@wormhole-foundation/liquidity-layer-solana/tokenRouter";
 import {
     CircleAttester,
     ETHEREUM_USDC_ADDRESS,
@@ -29,7 +29,7 @@ import {
     expectIxOk,
     getUsdcAtaBalance,
     postLiquidityLayerVaa,
-} from "../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
+} from "@wormhole-foundation/liquidity-layer-solana/testing";
 import {
     AddPeerArgs,
     Custodian,
