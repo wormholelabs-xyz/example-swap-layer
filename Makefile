@@ -26,5 +26,5 @@ fast-transfer-sdk: fast-transfer-setup
 	cd lib/example-liquidity-layer && npm ci && npm run build --workspace solana && npm pack --workspace solana 
 
 node_modules: fast-transfer-sdk
-	npm --version
+	npm update @wormhole-foundation/liquidity-layer-solana 
 	npm ci

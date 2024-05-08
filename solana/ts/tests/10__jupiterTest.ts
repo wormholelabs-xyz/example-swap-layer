@@ -34,13 +34,12 @@ import {
     expectIxOk,
     getBlockTime,
     postLiquidityLayerVaa,
-    tryNativeToUint8Array,
 } from "@wormhole-foundation/liquidity-layer-solana/testing";
 import SWAP_LAYER_IDL from "../../target/idl/swap_layer.json";
 import * as jupiter from "../src/jupiter";
 import { SwapLayerProgram, localnet } from "../src/swapLayer";
 import { IDL as WHIRLPOOL_IDL, Whirlpool } from "../src/types/whirlpool";
-import { FEE_UPDATER_KEYPAIR, createLut } from "./helpers";
+import { FEE_UPDATER_KEYPAIR, createLut, tryNativeToUint8Array } from "./helpers";
 import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 
 chaiUse(require("chai-as-promised"));
@@ -646,7 +645,7 @@ describe("Jupiter V6 Testing", () => {
                 targetCaller: Array.from(matchingEngine.custodianAddress().toBuffer()), // targetCaller
             },
             0,
-            Array.from(tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "ethereum")), // sourceTokenAddress
+            Array.from(tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "Ethereum")), // sourceTokenAddress
             Array.from(matchingEngine.cctpMintRecipientAddress().toBuffer()), // mint recipient
             amount,
             new Array(32).fill(0), // burnSource

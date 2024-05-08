@@ -16,6 +16,7 @@ import {
 } from "@wormhole-foundation/liquidity-layer-solana/common";
 import * as matchingEngineSdk from "@wormhole-foundation/liquidity-layer-solana/matchingEngine";
 import * as tokenRouterSdk from "@wormhole-foundation/liquidity-layer-solana/tokenRouter";
+import { PreparedOrder } from "@wormhole-foundation/liquidity-layer-solana/tokenRouter/state";
 import {
     CircleAttester,
     ETHEREUM_USDC_ADDRESS,
@@ -42,9 +43,17 @@ import {
     localnet,
     U32_MAX,
 } from "../src/swapLayer";
-import { FEE_UPDATER_KEYPAIR, createLut, hackedExpectDeepEqual } from "./helpers";
+import {
+    FEE_UPDATER_KEYPAIR,
+    createLut,
+    hackedExpectDeepEqual,
+    tryNativeToUint8Array,
+} from "./helpers";
+import { ChainId, toChain, toChainId } from "@wormhole-foundation/sdk-base";
 
 chaiUse(require("chai-as-promised"));
+
+const SOLANA_CHAIN_ID = toChainId("Solana");
 
 describe("Swap Layer", () => {
     const connection = new Connection(LOCALHOST, "processed");
@@ -61,7 +70,7 @@ describe("Swap Layer", () => {
     const newFeeRecipient = Keypair.generate().publicKey;
 
     // Sending chain information.
-    const foreignChain = wormholeSdk.CHAINS.ethereum;
+    const foreignChain = toChainId("Ethereum");
     const foreignTokenRouterAddress = Array.from(Buffer.alloc(32, "f0", "hex"));
     const foreignSwapLayerAddress = Array.from(
         Buffer.alloc(32, "000000000000000000000000deadbeefCf7178C407aA7369b67CB7e0274952e2", "hex"),
@@ -246,7 +255,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: wormholeSdk.CHAIN_ID_SOLANA,
+                                    chain: SOLANA_CHAIN_ID,
                                     address: foreignSwapLayerAddress,
                                     relayParams: startParams,
                                 },
@@ -280,7 +289,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: { ...startParams, baseFee: 0 },
                                 },
@@ -297,7 +306,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: { ...startParams, nativeTokenPrice: new BN(0) },
                                 },
@@ -314,7 +323,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: { ...startParams, gasDropoffMargin: 4294967295 },
                                 },
@@ -331,7 +340,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...startParams,
@@ -353,7 +362,7 @@ describe("Swap Layer", () => {
                         [
                             await createAddPeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...startParams,
@@ -425,7 +434,7 @@ describe("Swap Layer", () => {
                         [
                             await createUpdatePeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: { ...relayParamsForTest, baseFee: 0 },
                                 },
@@ -442,7 +451,7 @@ describe("Swap Layer", () => {
                         [
                             await createUpdatePeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...relayParamsForTest,
@@ -462,7 +471,7 @@ describe("Swap Layer", () => {
                         [
                             await createUpdatePeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...relayParamsForTest,
@@ -482,7 +491,7 @@ describe("Swap Layer", () => {
                         [
                             await createUpdatePeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...relayParamsForTest,
@@ -504,7 +513,7 @@ describe("Swap Layer", () => {
                         [
                             await createUpdatePeerIx({
                                 args: {
-                                    chain: foreignChain as wormholeSdk.ChainId,
+                                    chain: foreignChain,
                                     address: foreignSwapLayerAddress,
                                     relayParams: {
                                         ...relayParamsForTest,
@@ -939,7 +948,7 @@ describe("Swap Layer", () => {
                     [
                         await createUpdateRelayParamsIx({
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams: { ...updateParams, baseFee: 0 },
                             },
                         }),
@@ -955,7 +964,7 @@ describe("Swap Layer", () => {
                     [
                         await createUpdateRelayParamsIx({
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams: { ...updateParams, nativeTokenPrice: new BN(0) },
                             },
                         }),
@@ -971,7 +980,7 @@ describe("Swap Layer", () => {
                     [
                         await createUpdateRelayParamsIx({
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams: { ...updateParams, gasDropoffMargin: 4294967295 },
                             },
                         }),
@@ -987,7 +996,7 @@ describe("Swap Layer", () => {
                     [
                         await createUpdateRelayParamsIx({
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams: {
                                     ...updateParams,
                                     executionParams: { evm: { gasPrice: 0, gasPriceMargin: 69 } },
@@ -1006,7 +1015,7 @@ describe("Swap Layer", () => {
                     [
                         await createUpdateRelayParamsIx({
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams: {
                                     ...updateParams,
                                     executionParams: {
@@ -1032,7 +1041,7 @@ describe("Swap Layer", () => {
                         await createUpdateRelayParamsIx({
                             feeUpdater: owner.publicKey,
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams,
                             },
                         }),
@@ -1055,7 +1064,7 @@ describe("Swap Layer", () => {
                         await createUpdateRelayParamsIx({
                             feeUpdater: owner.publicKey,
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams,
                             },
                         }),
@@ -1077,7 +1086,7 @@ describe("Swap Layer", () => {
                         await createUpdateRelayParamsIx({
                             feeUpdater: owner.publicKey,
                             args: {
-                                chain: foreignChain as wormholeSdk.ChainId,
+                                chain: foreignChain,
                                 relayParams,
                             },
                         }),
@@ -1110,7 +1119,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1138,7 +1147,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: invalidChain as wormholeSdk.ChainId,
+                            targetChain: invalidChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1170,7 +1179,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1199,7 +1208,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1242,7 +1251,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1279,7 +1288,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1329,7 +1338,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1355,7 +1364,7 @@ describe("Swap Layer", () => {
 
                     hackedExpectDeepEqual(
                         preparedOrderData,
-                        new tokenRouterSdk.PreparedOrder(
+                        new PreparedOrder(
                             {
                                 orderSender: payer.publicKey,
                                 preparedBy: payer.publicKey,
@@ -1419,7 +1428,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: {
                                 gasDropoff: gasDropoff,
                                 maxRelayerFee: new BN(maxRelayerFee),
@@ -1445,7 +1454,7 @@ describe("Swap Layer", () => {
 
                     hackedExpectDeepEqual(
                         preparedOrderData,
-                        new tokenRouterSdk.PreparedOrder(
+                        new PreparedOrder(
                             {
                                 orderSender: payer.publicKey,
                                 preparedBy: payer.publicKey,
@@ -1546,7 +1555,7 @@ describe("Swap Layer", () => {
                             preparedFill,
                             recipient: payer.publicKey,
                         },
-                        invalidChain as wormholeSdk.ChainId,
+                        invalidChain as ChainId,
                     );
 
                     await expectIxErr(connection, [transferIx], [payer], "AccountNotInitialized");
@@ -1878,7 +1887,7 @@ describe("Swap Layer", () => {
                         },
                         {
                             amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain as wormholeSdk.ChainId,
+                            targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
                         },
@@ -1901,7 +1910,7 @@ describe("Swap Layer", () => {
 
                     hackedExpectDeepEqual(
                         preparedOrderData,
-                        new tokenRouterSdk.PreparedOrder(
+                        new PreparedOrder(
                             {
                                 orderSender: payer.publicKey,
                                 preparedBy: payer.publicKey,
@@ -2205,8 +2214,7 @@ async function createAndRedeemCctpFillForTest(
             },
             {
                 fill: {
-                    // @ts-ignore
-                    sourceChain: foreignChain as wormholeSdk.ChainId,
+                    sourceChain: foreignChain as ChainId,
                     orderSender,
                     redeemer: Array.from(redeemer.toBuffer()),
                     redeemerMessage: redeemerMessage,
@@ -2222,7 +2230,7 @@ async function createAndRedeemCctpFillForTest(
         foreignEndpointAddress,
         wormholeSequence++,
         message,
-        { sourceChain: "ethereum" },
+        { sourceChain: "Ethereum" },
     );
 
     const ix = await tokenRouter.redeemCctpFillIx(
@@ -2285,7 +2293,7 @@ async function craftCctpTokenBurnMessage(
             targetCaller: Array.from(tokenRouter.custodianAddress().toBuffer()), // targetCaller
         },
         0,
-        Array.from(wormholeSdk.tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "ethereum")), // sourceTokenAddress
+        Array.from(tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "Ethereum")), // sourceTokenAddress
         encodedMintRecipient,
         amount,
         burnSource,
@@ -2362,7 +2370,7 @@ function encodeRelayUsdcTransfer(
 
 async function updateRelayParamsForTest(
     swapLayer: SwapLayerProgram,
-    foreignChain: wormholeSdk.ChainId,
+    foreignChain: ChainId,
     relayParams: RelayParams,
     feeUpdater: Keypair,
 ) {

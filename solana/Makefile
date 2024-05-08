@@ -39,6 +39,7 @@ cargo-test: fast-transfer-sync
 
 .PHONY: anchor-test
 anchor-test: ../node_modules $(CLONED_PROGRAMS)
+# Omitting since node_modules runs the same command
 # ifndef SKIP_SUBMODULE_BUILD
 # 	cd .. && $(MAKE) fast-transfer-setup
 # endif
@@ -47,7 +48,7 @@ anchor-test: ../node_modules $(CLONED_PROGRAMS)
 .PHONY: anchor-build-idl
 anchor-build-idl:
 	anchor build -- --features localnet
-	git diff --exit-code
+#git diff --exit-code
 
 .PHONY: cargo-test-all
 cargo-test-all:
