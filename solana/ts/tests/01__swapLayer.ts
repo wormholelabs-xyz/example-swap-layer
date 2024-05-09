@@ -9,14 +9,13 @@ import {
     TransactionInstruction,
 } from "@solana/web3.js";
 import { use as chaiUse, expect } from "chai";
-import { CctpTokenBurnMessage } from "@wormhole-foundation/liquidity-layer-solana/cctp";
+import { CctpTokenBurnMessage } from "@wormhole-foundation/example-liquidity-layer-solana/cctp";
 import {
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
-} from "@wormhole-foundation/liquidity-layer-solana/common";
-import * as matchingEngineSdk from "@wormhole-foundation/liquidity-layer-solana/matchingEngine";
-import * as tokenRouterSdk from "@wormhole-foundation/liquidity-layer-solana/tokenRouter";
-import { PreparedOrder } from "@wormhole-foundation/liquidity-layer-solana/tokenRouter/state";
+} from "@wormhole-foundation/example-liquidity-layer-solana/common";
+import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
+import { PreparedOrder } from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter/state";
 import {
     CircleAttester,
     ETHEREUM_USDC_ADDRESS,
@@ -30,7 +29,7 @@ import {
     expectIxOk,
     getUsdcAtaBalance,
     postLiquidityLayerVaa,
-} from "@wormhole-foundation/liquidity-layer-solana/testing";
+} from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import {
     AddPeerArgs,
     Custodian,
@@ -2027,7 +2026,7 @@ describe("Swap Layer", () => {
                             preparedFill,
                             recipient: recipient.publicKey,
                         },
-                        69 as wormholeSdk.ChainId, // Invalid chain.
+                        69 as ChainId, // Invalid chain.
                     );
 
                     await expectIxErr(connection, [transferIx], [payer], "AccountNotInitialized");

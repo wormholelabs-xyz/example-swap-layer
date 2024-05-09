@@ -11,16 +11,15 @@ import {
 } from "@solana/web3.js";
 import * as legacyAnchor from "anchor-0.29.0";
 import { use as chaiUse, expect } from "chai";
-import { CctpTokenBurnMessage } from "@wormhole-foundation/liquidity-layer-solana/cctp";
-import * as tokenRouterSdk from "@wormhole-foundation/liquidity-layer-solana/tokenRouter";
+import { CctpTokenBurnMessage } from "@wormhole-foundation/example-liquidity-layer-solana/cctp";
 import {
     FastMarketOrder,
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
     SlowOrderResponse,
-} from "@wormhole-foundation/liquidity-layer-solana/common";
-import * as matchingEngineSdk from "@wormhole-foundation/liquidity-layer-solana/matchingEngine";
-import { VaaAccount } from "@wormhole-foundation/liquidity-layer-solana/wormhole";
+} from "@wormhole-foundation/example-liquidity-layer-solana/common";
+import * as matchingEngineSdk from "@wormhole-foundation/example-liquidity-layer-solana/matchingEngine";
+import { VaaAccount } from "@wormhole-foundation/example-liquidity-layer-solana/wormhole";
 import {
     CHAIN_TO_DOMAIN,
     CircleAttester,
@@ -34,7 +33,7 @@ import {
     expectIxOk,
     getBlockTime,
     postLiquidityLayerVaa,
-} from "@wormhole-foundation/liquidity-layer-solana/testing";
+} from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import SWAP_LAYER_IDL from "../../target/idl/swap_layer.json";
 import * as jupiter from "../src/jupiter";
 import { SwapLayerProgram, localnet } from "../src/swapLayer";

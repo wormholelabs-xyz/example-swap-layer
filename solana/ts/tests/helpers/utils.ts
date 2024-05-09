@@ -1,6 +1,6 @@
 import { AddressLookupTableProgram, Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { expect } from "chai";
-import { expectIxOk } from "@wormhole-foundation/liquidity-layer-solana/testing";
+import { expectIxOk } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import { Chain } from "@wormhole-foundation/sdk-base";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
 
