@@ -171,11 +171,6 @@ pub struct ConsumeSwapLayerFill<'info> {
                 SwapLayerError::InvalidPeer,
             );
 
-            // msg!(
-            //     "fill.order_sender: {:?}, associated_peer.address: {:?}",
-            //     fill.order_sender,
-            //     associated_peer.address
-            // );
             require!(
                 fill.order_sender == associated_peer.address,
                 SwapLayerError::InvalidPeer
