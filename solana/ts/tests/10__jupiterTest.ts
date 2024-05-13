@@ -98,7 +98,7 @@ describe("Jupiter V6 Testing", () => {
 
     describe("Jupiter V6 Setup", function () {
         before("Generate ATAs", async function () {
-            for (const mint of [swapLayer.mint, USDT_MINT_ADDRESS]) {
+            for (const mint of [swapLayer.mint, USDT_MINT_ADDRESS, splToken.NATIVE_MINT]) {
                 await splToken.getOrCreateAssociatedTokenAccount(
                     connection,
                     payer,
@@ -118,6 +118,30 @@ describe("Jupiter V6 Testing", () => {
                     );
                 }
             }
+
+            const payerWsol = splToken.getAssociatedTokenAddressSync(
+                splToken.NATIVE_MINT,
+                payer.publicKey,
+            );
+
+            await expectIxOk(
+                connection,
+                [
+                    splToken.createAssociatedTokenAccountInstruction(
+                        payer.publicKey,
+                        payerWsol,
+                        payer.publicKey,
+                        splToken.NATIVE_MINT,
+                    ),
+                    SystemProgram.transfer({
+                        fromPubkey: payer.publicKey,
+                        toPubkey: payerWsol,
+                        lamports: 2_000_000_000_000n,
+                    }),
+                    splToken.createSyncNativeInstruction(payerWsol),
+                ],
+                [payer],
+            );
         });
 
         after("Setup Lookup Tables", async function () {
@@ -138,37 +162,56 @@ describe("Jupiter V6 Testing", () => {
             );
         });
 
-        it("Swap USDC to USDT From Simulated Quote", async function () {
+        it("User Swap USDC to USDT From Simulated Quote -- Whirlpool", async function () {
             await invokeSharedAccountsRouteAsUser(
                 modifyUsdcToUsdtSwapResponseForTest(payer.publicKey, {
                     inAmount: 100_000_000n,
+                    quotedOutAmount: 100_000_000n,
                     slippageBps: 50,
                 }),
             );
         });
 
-        it("Swap USDT to USDC From Simulated Quote", async function () {
+        it("User Swap USDT to USDC From Simulated Quote -- Whirlpool", async function () {
             await invokeSharedAccountsRouteAsUser(
                 modifyUsdtToUsdcSwapResponseForTest(payer.publicKey, {
                     inAmount: 50_000_000n,
+                    quotedOutAmount: 50_000_000n,
                     slippageBps: 50,
                 }),
             );
         });
 
-        async function invokeSharedAccountsRouteAsUser(modifyArgs: {
-            instruction: TransactionInstruction;
-            sourceMint: PublicKey;
-            destinationMint: PublicKey;
-            minAmountOut: bigint;
-        }) {
-            const { instruction: ix, sourceMint, destinationMint, minAmountOut } = modifyArgs;
-
-            const srcToken = splToken.getAssociatedTokenAddressSync(sourceMint, payer.publicKey);
-            const dstToken = splToken.getAssociatedTokenAddressSync(
-                destinationMint,
-                payer.publicKey,
+        it("User Swap USDC to WSOL From Simulated Quote -- Phoenix V1", async function () {
+            await invokeSharedAccountsRouteAsUser(
+                modifyUsdcToWsolSwapResponseForTest(payer.publicKey, {
+                    inAmount: 150_000_000n,
+                    quotedOutAmount: 1_000_000_000n,
+                    slippageBps: 200,
+                }),
             );
+        });
+
+        it("User Swap WSOL to USDC From Simulated Quote -- Phoenix V1", async function () {
+            await invokeSharedAccountsRouteAsUser(
+                modifyWsolToUsdcSwapResponseForTest(payer.publicKey, {
+                    inAmount: 1_000_000_000n,
+                    quotedOutAmount: 150_000_000n,
+                    slippageBps: 200,
+                }),
+            );
+        });
+
+        async function invokeSharedAccountsRouteAsUser(
+            modifyArgs: jupiterV6.ModifiedSharedAccountsRoute,
+        ) {
+            const {
+                instruction: ix,
+                sourceToken: srcToken,
+                destinationToken: dstToken,
+                minAmountOut,
+            } = modifyArgs;
+
             const { amount: srcBalanceBefore } = await splToken.getAccount(connection, srcToken);
             const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
 
@@ -200,21 +243,22 @@ describe("Jupiter V6 Testing", () => {
             }
         });
 
-        it("Generate Fast Fill", async function () {
+        it("Other -- USDT via Whirlpool", async function () {
             const amountIn = 200_000_000n;
             const quotedAmountOut = 198_800_000n;
-            const slippage = 15; // 1.5bps
+            const slippage = 15; // 15bps
 
             // Computed after quote.
             const limitAmount = (quotedAmountOut * (10000n - BigInt(slippage))) / 10000n;
             const deadline = 0;
 
+            const dstMint = USDT_MINT_ADDRESS;
             const msg = {
                 recipient: toUniversal("Solana", recipient.publicKey.toString()),
                 redeemMode: { mode: "Direct" },
                 outputToken: {
                     type: "Other",
-                    address: toUniversal("Solana", USDT_MINT_ADDRESS.toString()),
+                    address: toUniversal("Solana", dstMint.toString()),
                     swap: {
                         deadline,
                         limitAmount,
@@ -244,10 +288,16 @@ describe("Jupiter V6 Testing", () => {
                 swapLayer.ID,
             );
 
-            const { instruction: innerIx } = modifyUsdcToUsdtSwapResponseForTest(swapAuthority, {
-                inAmount: 0n,
-                cpi: true,
-            });
+            const { instruction: innerIx, destinationMint } = modifyUsdcToUsdtSwapResponseForTest(
+                swapAuthority,
+                {
+                    inAmount: 420n,
+                    quotedOutAmount: 420n,
+                    slippageBps: 69,
+                    cpi: true,
+                },
+            );
+            expect(destinationMint.equals(dstMint)).is.true;
 
             const ix = await swapLayer.program.methods
                 .completeSwapDirect(innerIx.data)
@@ -265,18 +315,18 @@ describe("Jupiter V6 Testing", () => {
                             true, // allowOwnerOffCurve
                         ),
                         dstSwapToken: splToken.getAssociatedTokenAddressSync(
-                            USDT_MINT_ADDRESS,
+                            dstMint,
                             swapAuthority,
                             true, // allowOwnerOffCurve
                         ),
                         srcMint: swapLayer.mint,
-                        dstMint: USDT_MINT_ADDRESS,
+                        dstMint,
                         associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
                         tokenProgram: splToken.TOKEN_PROGRAM_ID,
                         systemProgram: SystemProgram.programId,
                     },
                     recipientToken: splToken.getAssociatedTokenAddressSync(
-                        USDT_MINT_ADDRESS,
+                        dstMint,
                         recipient.publicKey,
                     ),
                     recipient: recipient.publicKey,
@@ -295,11 +345,120 @@ describe("Jupiter V6 Testing", () => {
                 }),
             );
 
-            const dstToken = splToken.getAssociatedTokenAddressSync(
-                USDT_MINT_ADDRESS,
-                recipient.publicKey,
+            const dstToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient.publicKey);
+            const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
+
+            await expectIxOk(connection, [computeIx, ix], [payer], {
+                addressLookupTableAccounts,
+            });
+
+            const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
+            expect(dstBalanceAfter - dstBalanceBefore >= limitAmount).is.true;
+        });
+
+        it("Other -- WSOL via Phoenix V1", async function () {
+            const amountIn = 300_000_000n;
+            const quotedAmountOut = 2_000_000_000n;
+            const slippage = 150; // 1.5%
+
+            // Computed after quote.
+            const limitAmount = (quotedAmountOut * (10000n - BigInt(slippage))) / 10000n;
+            const deadline = 0;
+
+            const dstMint = splToken.NATIVE_MINT;
+            const msg = {
+                recipient: toUniversal("Solana", recipient.publicKey.toString()),
+                redeemMode: { mode: "Direct" },
+                outputToken: {
+                    type: "Other",
+                    address: toUniversal("Solana", dstMint.toString()),
+                    swap: {
+                        deadline,
+                        limitAmount,
+                        type: {
+                            id: "JupiterV6",
+                            dexProgramId: { isSome: false },
+                        },
+                    },
+                },
+            } as SwapLayerMessage;
+
+            const { preparedFill } = await redeemFastFillForTest(
+                { payer: payer.publicKey },
+                emittedEvents,
+                {
+                    amountIn,
+                    redeemerMessage: encodeSwapLayerMessage(msg),
+                },
             );
 
+            const preparedFillData = await tokenRouter.fetchPreparedFill(preparedFill);
+            expect(decodeSwapLayerMessage(preparedFillData.redeemerMessage)).to.eql(msg);
+
+            const beneficiary = Keypair.generate().publicKey;
+            const [swapAuthority] = PublicKey.findProgramAddressSync(
+                [Buffer.from("swap-authority"), preparedFill.toBuffer()],
+                swapLayer.ID,
+            );
+
+            const { instruction: innerIx, destinationMint } = modifyUsdcToWsolSwapResponseForTest(
+                swapAuthority,
+                {
+                    inAmount: 420n,
+                    quotedOutAmount: 420n,
+                    slippageBps: 69,
+                    cpi: true,
+                },
+            );
+            expect(destinationMint.equals(dstMint)).is.true;
+
+            const ix = await swapLayer.program.methods
+                .completeSwapDirect(innerIx.data)
+                .accounts({
+                    completeSwap: {
+                        payer: payer.publicKey,
+                        consumeSwapLayerFill: await swapLayer.consumeSwapLayerFillComposite({
+                            preparedFill,
+                            beneficiary,
+                        }),
+                        authority: swapAuthority,
+                        srcSwapToken: splToken.getAssociatedTokenAddressSync(
+                            swapLayer.mint,
+                            swapAuthority,
+                            true, // allowOwnerOffCurve
+                        ),
+                        dstSwapToken: splToken.getAssociatedTokenAddressSync(
+                            dstMint,
+                            swapAuthority,
+                            true, // allowOwnerOffCurve
+                        ),
+                        srcMint: swapLayer.mint,
+                        dstMint,
+                        associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
+                        tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                        systemProgram: SystemProgram.programId,
+                    },
+                    recipientToken: splToken.getAssociatedTokenAddressSync(
+                        dstMint,
+                        recipient.publicKey,
+                    ),
+                    recipient: recipient.publicKey,
+                })
+                .remainingAccounts(innerIx.keys)
+                .instruction();
+
+            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+                units: 420_000,
+            });
+
+            const addressLookupTableAccounts = await Promise.all(
+                luts.map(async (lookupTableAddress) => {
+                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                    return resp.value;
+                }),
+            );
+
+            const dstToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient.publicKey);
             const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
 
             await expectIxOk(connection, [computeIx, ix], [payer], {
@@ -330,6 +489,32 @@ describe("Jupiter V6 Testing", () => {
     ): jupiterV6.ModifiedSharedAccountsRoute {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/whirlpool_usdt_to_usdc.json`, {
+                encoding: "utf-8",
+            }),
+        );
+
+        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+    }
+
+    function modifyUsdcToWsolSwapResponseForTest(
+        tokenOwner: PublicKey,
+        opts: jupiterV6.ModifySharedAccountsRouteOpts,
+    ): jupiterV6.ModifiedSharedAccountsRoute {
+        const response = JSON.parse(
+            fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/phoenix_v1_usdc_to_wsol.json`, {
+                encoding: "utf-8",
+            }),
+        );
+
+        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+    }
+
+    function modifyWsolToUsdcSwapResponseForTest(
+        tokenOwner: PublicKey,
+        opts: jupiterV6.ModifySharedAccountsRouteOpts,
+    ): jupiterV6.ModifiedSharedAccountsRoute {
+        const response = JSON.parse(
+            fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/phoenix_v1_wsol_to_usdc.json`, {
                 encoding: "utf-8",
             }),
         );
