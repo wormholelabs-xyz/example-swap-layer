@@ -73,9 +73,9 @@ describe("Swap Layer", () => {
     const newFeeRecipient = Keypair.generate().publicKey;
 
     // Sending chain information.
-    const foreignChain = toChainId("ethereum");
-    const foreignTokenRouterAddress = REGISTERED_TOKEN_ROUTERS["ethereum"]!;
-    const foreignSwapLayerAddress = REGISTERED_PEERS["ethereum"]!;
+    const foreignChain = toChainId("Ethereum");
+    const foreignTokenRouterAddress = REGISTERED_TOKEN_ROUTERS["Ethereum"]!;
+    const foreignSwapLayerAddress = REGISTERED_PEERS["Ethereum"]!;
     const foreignRecipientAddress = Array.from(
         Buffer.alloc(32, "0000000000000000000000beefdeadCf7178C407aA7369b67CB7edeadbeef", "hex"),
     );

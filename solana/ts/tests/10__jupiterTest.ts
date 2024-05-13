@@ -39,16 +39,21 @@ import { use as chaiUse, expect } from "chai";
 import * as fs from "fs";
 import * as jupiterV6 from "../src/jupiterV6";
 import {
-    SwapLayerMessage, SwapLayerProgram, decodeSwapLayerMessage,
-    encodeSwapLayerMessage, localnet
+    SwapLayerMessage,
+    SwapLayerProgram,
+    decodeSwapLayerMessage,
+    encodeSwapLayerMessage,
+    localnet,
 } from "../src/swapLayer";
 import { IDL as WHIRLPOOL_IDL } from "../src/types/whirlpool";
 import {
-    FEE_UPDATER_KEYPAIR, REGISTERED_PEERS,
+    FEE_UPDATER_KEYPAIR,
+    REGISTERED_PEERS,
     USDT_MINT_ADDRESS,
-    WHIRLPOOL_PROGRAM_ID, createLut, tryNativeToUint8Array
+    WHIRLPOOL_PROGRAM_ID,
+    createLut,
+    tryNativeToUint8Array,
 } from "./helpers";
-} from "../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
 
 chaiUse(require("chai-as-promised"));
 
@@ -580,7 +585,7 @@ describe("Jupiter V6 Testing", () => {
             minAmountOut: minAmountOut ?? 0n,
             targetChain: toChainId(targetChain ?? "Solana"),
             redeemer: Array.from(swapLayer.custodianAddress().toBuffer()),
-            sender: sender ?? REGISTERED_PEERS["ethereum"]!,
+            sender: sender ?? REGISTERED_PEERS["Ethereum"]!,
             refundAddress: new Array(32).fill(3),
             maxFee: maxFee ?? 42069n,
             initAuctionFee: initAuctionFee ?? 1_250_000n,

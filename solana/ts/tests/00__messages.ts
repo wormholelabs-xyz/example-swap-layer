@@ -2,8 +2,8 @@ import { SYSVAR_CLOCK_PUBKEY, SYSVAR_EPOCH_SCHEDULE_PUBKEY } from "@solana/web3.
 import { encoding } from "@wormhole-foundation/sdk-base";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
 import { expect } from "chai";
-import { USDC_MINT_ADDRESS } from "../../../lib/example-liquidity-layer/solana/ts/tests/helpers";
 import { SwapLayerMessage, decodeSwapLayerMessage, encodeSwapLayerMessage } from "../src/swapLayer";
+import { USDC_MINT_ADDRESS } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 
 describe("Swap Layer Messages", () => {
     it("USDC Direct", function () {
