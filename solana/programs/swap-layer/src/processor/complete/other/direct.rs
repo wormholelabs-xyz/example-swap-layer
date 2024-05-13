@@ -184,9 +184,7 @@ where
         // This is perverse, but we are performing a balance check after the swap to see if we get
         // the desired amount. If we don't, revert.
         jupiter_args.quoted_out_amount = limit_amount;
-
-        // Configure 100% slippage (yikes).
-        jupiter_args.slippage_bps = 10000;
+        jupiter_args.slippage_bps = 0;
 
         // Peek into the head of remaining accounts. This account will be the dex program that Jupiter
         // V6 interacts with. If the swap params specify a specific dex program, we need to ensure that
