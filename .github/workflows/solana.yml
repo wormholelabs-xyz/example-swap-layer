@@ -4,7 +4,9 @@ on:
     branches:
       - main
       - solana/integration
-  pull_request: null
+  pull_request:
+    paths:
+      - 'solana/**' 
 
 env:
   RUSTC_VERSION: 1.75.0
