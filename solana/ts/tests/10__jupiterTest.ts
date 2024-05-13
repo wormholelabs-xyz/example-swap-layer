@@ -202,7 +202,6 @@ describe("Jupiter V6 Testing", () => {
 
             // Computed after quote.
             const limitAmount = (quotedAmountOut * (10000n - BigInt(slippage))) / 10000n;
-            console.log(amountIn, limitAmount);
             const deadline = 0;
 
             const msg = {
@@ -303,10 +302,6 @@ describe("Jupiter V6 Testing", () => {
             });
 
             const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
-            console.log("dstBalanceBefore", dstBalanceBefore);
-            console.log("dstBalanceAfter", dstBalanceAfter);
-            console.log(dstBalanceAfter - dstBalanceBefore, limitAmount);
-
             expect(dstBalanceAfter - dstBalanceBefore >= limitAmount).is.true;
         });
     });
