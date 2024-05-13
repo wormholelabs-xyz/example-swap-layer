@@ -27,7 +27,7 @@ idl-build = [
 ]
 
 [dependencies]
-swap-layer-messages.workspace = true
+swap-layer-messages = { workspace = true, features = ["anchor"]}
 
 token-router.workspace = true
 common.workspace = true

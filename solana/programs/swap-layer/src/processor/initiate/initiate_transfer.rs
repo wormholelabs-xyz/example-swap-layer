@@ -70,6 +70,8 @@ pub struct InitiateTransferArgs {
     /// The Wormhole chain ID of the network to transfer tokens to.
     pub target_chain: u16,
 
+    pub output_token: OutputToken,
+
     pub relay_options: Option<RelayOptions>,
 
     pub recipient: [u8; 32],

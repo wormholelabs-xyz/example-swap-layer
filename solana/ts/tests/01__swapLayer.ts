@@ -1126,6 +1126,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1154,6 +1155,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1186,6 +1188,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: new Array(32).fill(0),
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1215,6 +1218,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1258,6 +1262,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1295,6 +1300,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1345,6 +1351,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1443,6 +1450,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -1969,6 +1977,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
+                            outputToken: { type: "Usdc" },
                         },
                     );
 
@@ -2367,8 +2376,9 @@ async function createAndRedeemCctpFillForTest(
         units: 300_000,
     });
 
-    const { value: lookupTableAccount } =
-        await connection.getAddressLookupTable(tokenRouterLkupTable);
+    const { value: lookupTableAccount } = await connection.getAddressLookupTable(
+        tokenRouterLkupTable,
+    );
 
     await expectIxOk(connection, [computeIx, ix], [payer], {
         addressLookupTableAccounts: [lookupTableAccount!],

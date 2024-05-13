@@ -10,6 +10,7 @@ import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-so
 import IDL from "../../../target/idl/swap_layer.json";
 import { SwapLayer } from "../../../target/types/swap_layer";
 import { Custodian, Peer, RelayParams } from "./state";
+import { OutputToken } from "./messages";
 
 export const PROGRAM_IDS = ["SwapLayer1111111111111111111111111111111111"] as const;
 
@@ -29,6 +30,7 @@ export type RelayOptions = {
 export type InitiateTransferArgs = {
     amountIn: BN;
     targetChain: number;
+    outputToken: OutputToken;
     relayOptions: RelayOptions | null;
     recipient: Array<number>;
 };
