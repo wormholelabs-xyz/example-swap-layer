@@ -73,6 +73,8 @@ pub struct InitiateTransferArgs {
     pub relay_options: Option<RelayOptions>,
 
     pub recipient: [u8; 32],
+
+    pub payload: Option<Vec<u8>>,
 }
 
 pub fn initiate_transfer(ctx: Context<InitiateTransfer>, args: InitiateTransferArgs) -> Result<()> {
@@ -107,10 +109,18 @@ pub fn initiate_transfer(ctx: Context<InitiateTransfer>, args: InitiateTransferA
             output_token: OutputToken::Usdc,
         }
     } else {
-        SwapMessageV1 {
-            recipient: args.recipient,
-            redeem_mode: RedeemMode::Direct,
-            output_token: OutputToken::Usdc,
+        if args.payload.is_some() {
+            SwapMessageV1 {
+                recipient: args.recipient,
+                redeem_mode: RedeemMode::Payload(args.payload.unwrap()),
+                output_token: OutputToken::Usdc,
+            }
+        } else {
+            SwapMessageV1 {
+                recipient: args.recipient,
+                redeem_mode: RedeemMode::Direct,
+                output_token: OutputToken::Usdc,
+            }
         }
     };
 

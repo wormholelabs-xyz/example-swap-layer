@@ -1124,6 +1124,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1152,6 +1153,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1184,6 +1186,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: new Array(32).fill(0),
+                            payload: null,
                         },
                     );
 
@@ -1213,6 +1216,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1256,6 +1260,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1293,6 +1298,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1343,6 +1349,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1433,6 +1440,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -1889,6 +1897,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
+                            payload: null,
                         },
                     );
 
@@ -2155,6 +2164,82 @@ describe("Swap Layer", () => {
                         recipientBefore + message.deposit!.header.amount,
                     );
                     expect(beneficiaryAfter).to.be.greaterThan(beneficiaryBefore);
+                });
+            });
+
+            describe("USDC Transfer (Payload)", function () {
+                describe("Outbound", function () {
+                    it("Initiate Transfer", async function () {
+                        const amountIn = 6900000000n;
+
+                        // Balance check.
+                        const payerToken = await splToken.getOrCreateAssociatedTokenAccount(
+                            connection,
+                            payer,
+                            USDC_MINT_ADDRESS,
+                            payer.publicKey,
+                        );
+                        const payerBefore = await getUsdcAtaBalance(connection, payer.publicKey);
+
+                        const preparedOrder = Keypair.generate();
+
+                        const ix = await swapLayer.initiateTransferIx(
+                            {
+                                payer: payer.publicKey,
+                                preparedOrder: preparedOrder.publicKey,
+                            },
+                            {
+                                amountIn: new BN(amountIn.toString()),
+                                targetChain: foreignChain,
+                                relayOptions: null,
+                                recipient: foreignRecipientAddress,
+                                payload: Buffer.from("Insert payload here"),
+                            },
+                        );
+
+                        await expectIxOk(connection, [ix], [payer, preparedOrder]);
+
+                        // Balance check.
+                        const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
+                        expect(payerAfter).to.equal(payerBefore - amountIn);
+
+                        // Verify the relevant information in the prepared order.
+                        const preparedOrderData = await tokenRouter.fetchPreparedOrder(
+                            preparedOrder.publicKey,
+                        );
+
+                        const {
+                            info: { preparedCustodyTokenBump },
+                        } = preparedOrderData;
+
+                        // hackedExpectDeepEqual(
+                        //     preparedOrderData,
+                        //     new PreparedOrder(
+                        //         {
+                        //             orderSender: payer.publicKey,
+                        //             preparedBy: payer.publicKey,
+                        //             orderType: {
+                        //                 market: {
+                        //                     minAmountOut: null,
+                        //                 },
+                        //             },
+                        //             srcToken: payerToken.address,
+                        //             refundToken: payerToken.address,
+                        //             targetChain: foreignChain,
+                        //             redeemer: foreignSwapLayerAddress,
+                        //             preparedCustodyTokenBump,
+                        //         },
+                        //         encodeDirectUsdcTransfer(foreignRecipientAddress),
+                        //     ),
+                        // );
+
+                        // Verify the prepared custody token balance.
+                        const { amount: preparedCustodyTokenBalance } = await splToken.getAccount(
+                            connection,
+                            tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
+                        );
+                        expect(preparedCustodyTokenBalance).equals(amountIn);
+                    });
                 });
             });
         });
