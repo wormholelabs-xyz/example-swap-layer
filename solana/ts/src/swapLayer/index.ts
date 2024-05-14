@@ -522,7 +522,7 @@ export class SwapLayerProgram {
             payer: PublicKey;
             preparedFill: PublicKey;
             recipient: PublicKey;
-            dstMint: PublicKey;
+            dstMint?: PublicKey;
             beneficiary?: PublicKey;
             srcMint?: PublicKey;
         },
@@ -530,12 +530,13 @@ export class SwapLayerProgram {
             cpiInstruction: TransactionInstruction;
         },
     ): Promise<TransactionInstruction> {
-        const { payer, preparedFill, recipient, dstMint } = accounts;
+        const { payer, preparedFill, recipient } = accounts;
         const { cpiInstruction } = args;
 
-        let { beneficiary, srcMint } = accounts;
+        let { beneficiary, srcMint, dstMint } = accounts;
         beneficiary ??= payer;
         srcMint ??= this.mint;
+        dstMint ??= splToken.NATIVE_MINT;
 
         const swapAuthority = this.swapAuthorityAddress(preparedFill);
 

@@ -27,6 +27,7 @@ import {
     PAYER_KEYPAIR,
     REGISTERED_TOKEN_ROUTERS,
     USDC_MINT_ADDRESS,
+    expectIxErr,
     expectIxOk,
     getBlockTime,
     postLiquidityLayerVaa,
@@ -34,8 +35,7 @@ import {
 import { VaaAccount } from "@wormhole-foundation/example-liquidity-layer-solana/wormhole";
 import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
-import * as legacyAnchor from "anchor-0.29.0";
-import { use as chaiUse, expect } from "chai";
+import { assert } from "chai";
 import * as fs from "fs";
 import * as jupiterV6 from "../src/jupiterV6";
 import {
@@ -47,47 +47,27 @@ import {
     encodeSwapLayerMessage,
     localnet,
 } from "../src/swapLayer";
-import { IDL as WHIRLPOOL_IDL } from "../src/types/whirlpool";
 import {
     FEE_UPDATER_KEYPAIR,
     REGISTERED_PEERS,
     USDT_MINT_ADDRESS,
-    WHIRLPOOL_PROGRAM_ID,
     createLut,
     tryNativeToUint8Array,
 } from "./helpers";
 
-chaiUse(require("chai-as-promised"));
-
 describe("Jupiter V6 Testing", () => {
     const connection = new Connection(LOCALHOST, "processed");
+
     const payer = PAYER_KEYPAIR;
     const relayer = Keypair.generate();
     const owner = OWNER_KEYPAIR;
-    const recipient = Keypair.generate();
     const ownerAssistant = OWNER_ASSISTANT_KEYPAIR;
     const feeUpdater = FEE_UPDATER_KEYPAIR;
-    const feeRecipient = Keypair.generate();
-    const feeRecipientToken = splToken.getAssociatedTokenAddressSync(
-        USDC_MINT_ADDRESS,
-        feeRecipient.publicKey,
-    );
-
-    // Sending chain information.
-    const foreignChain = toChainId("Sepolia");
-    const foreignEndpointAddress = Array.from(
-        Buffer.alloc(32, "000000000000000000000000603541d1Cf7178C407aA7369b67CB7e0274952e2", "hex"),
-    );
-    const foreignCctpDomain = 0;
 
     // Program SDKs
     const swapLayer = new SwapLayerProgram(connection, localnet(), USDC_MINT_ADDRESS);
     const tokenRouter = swapLayer.tokenRouterProgram();
     const matchingEngine = tokenRouter.matchingEngineProgram();
-
-    const whirlpoolProgram = new legacyAnchor.Program(WHIRLPOOL_IDL, WHIRLPOOL_PROGRAM_ID, {
-        connection,
-    });
 
     const luts: [PublicKey, PublicKey] = [PublicKey.default, PublicKey.default];
 
@@ -101,13 +81,6 @@ describe("Jupiter V6 Testing", () => {
     describe("Jupiter V6 Setup", function () {
         before("Generate ATAs", async function () {
             for (const mint of [swapLayer.mint, USDT_MINT_ADDRESS, splToken.NATIVE_MINT]) {
-                await splToken.getOrCreateAssociatedTokenAccount(
-                    connection,
-                    payer,
-                    mint,
-                    recipient.publicKey,
-                );
-
                 for (let i = 0; i < 8; ++i) {
                     const authority = jupiterV6.programAuthorityAddress(i);
 
@@ -222,10 +195,10 @@ describe("Jupiter V6 Testing", () => {
             const decodedIxData = jupiterV6.decodeSharedAccountsRouteArgs(ix.data);
 
             const { amount: srcBalanceAfter } = await splToken.getAccount(connection, srcToken);
-            expect(srcBalanceBefore - srcBalanceAfter).equals(decodedIxData.inAmount);
+            assert.strictEqual(srcBalanceBefore - srcBalanceAfter, decodedIxData.inAmount);
 
             const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
-            expect(dstBalanceAfter - dstBalanceBefore >= minAmountOut).is.true;
+            assert.isTrue(dstBalanceAfter - dstBalanceBefore >= minAmountOut);
         }
     });
 
@@ -245,150 +218,307 @@ describe("Jupiter V6 Testing", () => {
             }
         });
 
+        function newQuotedSwapOutputToken(opts: {
+            quotedAmountOut: bigint;
+            dstMint?: PublicKey | null;
+            slippageBps?: number;
+            deadline?: number;
+            dexProgramId?: PublicKey | null;
+        }) {
+            const { quotedAmountOut } = opts;
+
+            let { dstMint, slippageBps, deadline, dexProgramId } = opts;
+            dstMint ??= null;
+            slippageBps ??= 0;
+            deadline ??= 0;
+            dexProgramId ??= null;
+
+            const limitAmount = (quotedAmountOut * (10000n - BigInt(slippageBps))) / 10000n;
+            const swap = {
+                deadline,
+                limitAmount,
+                type: {
+                    id: "JupiterV6",
+                    dexProgramId:
+                        dexProgramId === null
+                            ? { isSome: false }
+                            : {
+                                  isSome: true,
+                                  address: toUniversal("Solana", dexProgramId.toString()),
+                              },
+                },
+            };
+            return {
+                limitAmount,
+                outputToken: (dstMint === null
+                    ? { type: "Gas", swap }
+                    : {
+                          type: "Other",
+                          address: toUniversal("Solana", dstMint.toString()),
+                          swap,
+                      }) as OutputToken,
+            };
+        }
+
         it("Other -- USDT via Whirlpool", async function () {
-            const amountIn = 200_000_000n;
-            const quotedAmountOut = 198_800_000n;
-            const slippage = 15; // 15bps
-
-            // Computed after quote.
-            const limitAmount = (quotedAmountOut * (10000n - BigInt(slippage))) / 10000n;
-            const deadline = 0;
-
             const dstMint = USDT_MINT_ADDRESS;
-            const { preparedFill } = await redeemSwapLayerFastFillForTest(
+            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                quotedAmountOut: 198_800_000n,
+                dstMint,
+                slippageBps: 15,
+            });
+
+            const amountIn = 200_000_000n;
+            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
                 { payer: payer.publicKey },
                 emittedEvents,
                 {
-                    recipient: recipient.publicKey,
-                    outputToken: {
-                        type: "Other",
-                        address: toUniversal("Solana", dstMint.toString()),
-                        swap: {
-                            deadline,
-                            limitAmount,
-                            type: {
-                                id: "JupiterV6",
-                                dexProgramId: { isSome: false },
-                            },
-                        },
-                    },
+                    dstMint,
+                    outputToken,
                     amountIn,
                 },
             );
 
-            const { instruction: cpiInstruction, destinationMint } =
-                modifyUsdcToUsdtSwapResponseForTest(swapLayer.swapAuthorityAddress(preparedFill), {
-                    inAmount: 420n,
-                    quotedOutAmount: 420n,
-                    slippageBps: 69,
-                    cpi: true,
-                });
-            expect(destinationMint.equals(dstMint)).is.true;
-
-            const ix = await swapLayer.completeSwapDirectIx(
+            await completeSwapDirectForTest(
                 {
                     payer: payer.publicKey,
                     preparedFill,
-                    recipient: recipient.publicKey,
+                    recipient,
                     dstMint,
                 },
-                { cpiInstruction },
+                {
+                    limitAmount,
+                    swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                },
             );
-
-            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
-                units: 420_000,
-            });
-
-            const addressLookupTableAccounts = await Promise.all(
-                luts.map(async (lookupTableAddress) => {
-                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
-                    return resp.value;
-                }),
-            );
-
-            const dstToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient.publicKey);
-            const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
-
-            await expectIxOk(connection, [computeIx, ix], [payer], {
-                addressLookupTableAccounts,
-            });
-
-            const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
-            expect(dstBalanceAfter - dstBalanceBefore >= limitAmount).is.true;
         });
 
         it("Other -- WSOL via Phoenix V1", async function () {
-            const amountIn = 300_000_000n;
-            const quotedAmountOut = 2_000_000_000n;
-            const slippage = 150; // 1.5%
-
-            // Computed after quote.
-            const limitAmount = (quotedAmountOut * (10000n - BigInt(slippage))) / 10000n;
-            const deadline = 0;
-
             const dstMint = splToken.NATIVE_MINT;
-            const { preparedFill } = await redeemSwapLayerFastFillForTest(
+            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                quotedAmountOut: 2_000_000_000n,
+                dstMint,
+                slippageBps: 150,
+            });
+
+            const amountIn = 300_000_000n;
+            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
                 { payer: payer.publicKey },
                 emittedEvents,
                 {
-                    recipient: recipient.publicKey,
-                    outputToken: {
-                        type: "Other",
-                        address: toUniversal("Solana", dstMint.toString()),
-                        swap: {
-                            deadline,
-                            limitAmount,
-                            type: {
-                                id: "JupiterV6",
-                                dexProgramId: { isSome: false },
-                            },
-                        },
-                    },
+                    dstMint,
+                    outputToken,
                     amountIn,
                 },
             );
 
-            const { instruction: cpiInstruction, destinationMint } =
-                modifyUsdcToWsolSwapResponseForTest(swapLayer.swapAuthorityAddress(preparedFill), {
-                    inAmount: 420n,
-                    quotedOutAmount: 420n,
-                    slippageBps: 69,
-                    cpi: true,
-                });
-            expect(destinationMint.equals(dstMint)).is.true;
-
-            const ix = await swapLayer.completeSwapDirectIx(
+            await completeSwapDirectForTest(
                 {
                     payer: payer.publicKey,
                     preparedFill,
-                    recipient: recipient.publicKey,
+                    recipient,
                     dstMint,
                 },
-                { cpiInstruction },
+                {
+                    limitAmount,
+                    swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                },
             );
+        });
 
-            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
-                units: 420_000,
+        it("Gas via Phoenix V1", async function () {
+            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                quotedAmountOut: 2_000_000_000n,
+                slippageBps: 150,
             });
 
-            const addressLookupTableAccounts = await Promise.all(
-                luts.map(async (lookupTableAddress) => {
-                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
-                    return resp.value;
-                }),
+            const amountIn = 300_000_000n;
+            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                { payer: payer.publicKey },
+                emittedEvents,
+                {
+                    outputToken,
+                    amountIn,
+                },
             );
 
-            const dstToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient.publicKey);
+            await completeSwapDirectForTest(
+                {
+                    payer: payer.publicKey,
+                    preparedFill,
+                    recipient,
+                },
+                {
+                    limitAmount,
+                    swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                },
+            );
+        });
+    });
+
+    async function completeSwapDirectForTest(
+        accounts: {
+            payer: PublicKey;
+            preparedFill: PublicKey;
+            recipient: PublicKey;
+            dstMint?: PublicKey;
+        },
+        opts: ForTestOpts & {
+            limitAmount: bigint;
+            swapResponseModifier: (
+                tokenOwner: PublicKey,
+                opts: jupiterV6.ModifySharedAccountsRouteOpts,
+            ) => jupiterV6.ModifiedSharedAccountsRoute;
+        },
+    ): Promise<undefined> {
+        const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts);
+        const { limitAmount, swapResponseModifier } = otherOpts;
+
+        const { instruction: cpiInstruction, destinationMint } = swapResponseModifier(
+            swapLayer.swapAuthorityAddress(accounts.preparedFill),
+            {
+                cpi: true,
+            },
+        );
+        const expectedDstMint = accounts.dstMint ?? splToken.NATIVE_MINT;
+        assert.deepEqual(destinationMint, expectedDstMint);
+
+        const ix = await swapLayer.completeSwapDirectIx(accounts, { cpiInstruction });
+
+        const ixs = [
+            ComputeBudgetProgram.setComputeUnitLimit({
+                units: 420_000,
+            }),
+            ix,
+        ];
+
+        const addressLookupTableAccounts = await Promise.all(
+            luts.map(async (lookupTableAddress) => {
+                const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                return resp.value;
+            }),
+        );
+
+        if (errorMsg !== null) {
+            await expectIxErr(connection, ixs, signers, errorMsg, {
+                addressLookupTableAccounts,
+            });
+            return;
+        }
+
+        const { redeemerMessage } = await tokenRouter.fetchPreparedFill(accounts.preparedFill);
+        const outputToken = decodeSwapLayerMessage(redeemerMessage).outputToken;
+
+        if (outputToken.type === "Gas") {
+            const balanceBefore = await connection.getBalance(accounts.recipient).then(BigInt);
+
+            await expectIxOk(connection, ixs, signers, {
+                addressLookupTableAccounts,
+            });
+
+            const balanceAfter = await connection.getBalance(accounts.recipient).then(BigInt);
+            assert.isTrue(balanceAfter - balanceBefore >= limitAmount);
+        } else if (outputToken.type === "Other") {
+            const dstToken = splToken.getAssociatedTokenAddressSync(
+                expectedDstMint,
+                accounts.recipient,
+            );
             const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
 
-            await expectIxOk(connection, [computeIx, ix], [payer], {
+            await expectIxOk(connection, ixs, signers, {
                 addressLookupTableAccounts,
             });
 
             const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
-            expect(dstBalanceAfter - dstBalanceBefore >= limitAmount).is.true;
+            assert.isTrue(dstBalanceAfter - dstBalanceBefore >= limitAmount);
+        } else {
+            assert.fail("Invalid output token type");
+        }
+    }
+
+    async function redeemSwapLayerFastFillForTest(
+        accounts: { payer: PublicKey },
+        emittedEvents: EmittedFilledLocalFastOrder[],
+        opts: ObserveCctpOrderVaasOpts & {
+            dstMint?: PublicKey;
+            recipient?: PublicKey;
+            redeemMode?: RedeemMode;
+            outputToken?: OutputToken;
+        },
+    ) {
+        let { dstMint, recipient, redeemMode, outputToken } = opts;
+        dstMint ??= splToken.NATIVE_MINT;
+        recipient ??= Keypair.generate().publicKey;
+        redeemMode ??= { mode: "Direct" };
+        outputToken ??= {
+            type: "Gas",
+            swap: {
+                deadline: 0,
+                limitAmount: 0n,
+                type: {
+                    id: "JupiterV6",
+                    dexProgramId: { isSome: false },
+                },
+            },
+        };
+
+        // Generate a new token account for recipient.
+        const recipientToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient);
+
+        await expectIxOk(
+            connection,
+            [
+                splToken.createAssociatedTokenAccountInstruction(
+                    payer.publicKey,
+                    recipientToken,
+                    recipient,
+                    dstMint,
+                ),
+            ],
+            [payer],
+        );
+
+        const msg = {
+            recipient: toUniversal("Solana", recipient.toString()),
+            redeemMode,
+            outputToken,
+        } as SwapLayerMessage;
+
+        // Override redeemer message if undefined.
+        if (opts.redeemerMessage === undefined) {
+            opts.redeemerMessage = encodeSwapLayerMessage(msg);
+        }
+
+        const settleResult = await settleAuctionNoneLocalForTest(
+            { payer: payer.publicKey },
+            emittedEvents,
+            opts,
+        );
+        const {
+            event: {
+                seeds: { sourceChain, orderSender, sequence },
+            },
+        } = settleResult!;
+
+        const fastFill = matchingEngine.fastFillAddress(
+            toChainId(sourceChain),
+            orderSender,
+            sequence,
+        );
+
+        const ix = await tokenRouter.redeemFastFillIx({
+            ...accounts,
+            fastFill,
         });
-    });
+
+        await expectIxOk(connection, [ix], [payer]);
+
+        const preparedFill = tokenRouter.preparedFillAddress(fastFill);
+        const { redeemerMessage } = await tokenRouter.fetchPreparedFill(preparedFill);
+        assert.deepEqual(decodeSwapLayerMessage(redeemerMessage), msg);
+
+        return { preparedFill, recipient };
+    }
 
     function modifyUsdcToUsdtSwapResponseForTest(
         tokenOwner: PublicKey,
@@ -609,62 +739,6 @@ describe("Jupiter V6 Testing", () => {
         }
 
         return emittedEvents.shift()!;
-    }
-
-    async function redeemSwapLayerFastFillForTest(
-        accounts: { payer: PublicKey },
-        emittedEvents: EmittedFilledLocalFastOrder[],
-        opts: ObserveCctpOrderVaasOpts & {
-            recipient?: PublicKey;
-            redeemMode?: RedeemMode;
-            outputToken?: OutputToken;
-        },
-    ) {
-        let { recipient, redeemMode, outputToken } = opts;
-        recipient ??= payer.publicKey;
-        redeemMode ??= { mode: "Direct" };
-        outputToken ??= { type: "Usdc" };
-
-        const msg = {
-            recipient: toUniversal("Solana", recipient.toString()),
-            redeemMode,
-            outputToken,
-        } as SwapLayerMessage;
-
-        // Override redeemer message if undefined.
-        if (opts.redeemerMessage === undefined) {
-            opts.redeemerMessage = encodeSwapLayerMessage(msg);
-        }
-
-        const settleResult = await settleAuctionNoneLocalForTest(
-            { payer: payer.publicKey },
-            emittedEvents,
-            opts,
-        );
-        const {
-            event: {
-                seeds: { sourceChain, orderSender, sequence },
-            },
-        } = settleResult!;
-
-        const fastFill = matchingEngine.fastFillAddress(
-            toChainId(sourceChain),
-            orderSender,
-            sequence,
-        );
-
-        const ix = await tokenRouter.redeemFastFillIx({
-            ...accounts,
-            fastFill,
-        });
-
-        await expectIxOk(connection, [ix], [payer]);
-
-        const preparedFill = tokenRouter.preparedFillAddress(fastFill);
-        const preparedFillData = await tokenRouter.fetchPreparedFill(preparedFill);
-        expect(decodeSwapLayerMessage(preparedFillData.redeemerMessage)).to.eql(msg);
-
-        return { preparedFill };
     }
 
     type ForTestOpts = {
