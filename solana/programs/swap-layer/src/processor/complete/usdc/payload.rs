@@ -63,20 +63,21 @@ pub struct CompleteTransferPayload<'info> {
 }
 
 pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Result<()> {
-    // Consume the prepared fill, and send the tokens to the staged custody account.
-    ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
-        ctx.accounts.staged_custody_token.to_account_info(),
-        ctx.accounts.token_program.to_account_info(),
-    )?;
-
-    let swap_msg = ctx
-        .accounts
-        .consume_swap_layer_fill
-        .read_message_unchecked();
     let staged_transfer = &mut ctx.accounts.staged_transfer;
 
     // Set the staged transfer if it hasn't been set yet.
     if staged_transfer.staged_by == Pubkey::default() {
+        // Consume the prepared fill, and send the tokens to the staged custody account.
+        ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
+            ctx.accounts.staged_custody_token.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        )?;
+
+        let swap_msg = ctx
+            .accounts
+            .consume_swap_layer_fill
+            .read_message_unchecked();
+
         staged_transfer.set_inner(StagedTransfer {
             seeds: StagedTransferSeeds {
                 prepared_fill: ctx.accounts.consume_swap_layer_fill.prepared_fill_key(),

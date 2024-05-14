@@ -2466,11 +2466,22 @@ describe("Swap Layer", () => {
                     const beneficiary = Keypair.generate();
                     const dstTokenOwner = Keypair.generate();
 
-                    const dstToken = await splToken.getOrCreateAssociatedTokenAccount(
-                        connection,
-                        payer,
+                    const dstToken = splToken.getAssociatedTokenAddressSync(
                         USDC_MINT_ADDRESS,
                         dstTokenOwner.publicKey,
+                    );
+
+                    await expectIxOk(
+                        connection,
+                        [
+                            splToken.createAssociatedTokenAccountInstruction(
+                                payer.publicKey,
+                                dstToken,
+                                dstTokenOwner.publicKey,
+                                USDC_MINT_ADDRESS,
+                            ),
+                        ],
+                        [payer],
                     );
 
                     const expectedLamports = await connection
@@ -2489,7 +2500,7 @@ describe("Swap Layer", () => {
                         recipient: recipient.publicKey,
                         beneficiary: beneficiary.publicKey,
                         stagedTransfer,
-                        dstToken: dstToken.address,
+                        dstToken: dstToken,
                     });
 
                     await expectIxOk(connection, [consumeIx], [recipient]);
@@ -2506,7 +2517,7 @@ describe("Swap Layer", () => {
 
                     const { amount: dstTokenBalance } = await splToken.getAccount(
                         connection,
-                        dstToken.address,
+                        dstToken,
                     );
                     expect(dstTokenBalance).equals(stagedTokenBalance);
 
