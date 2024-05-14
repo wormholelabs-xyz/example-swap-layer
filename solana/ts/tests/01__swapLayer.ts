@@ -46,6 +46,7 @@ import {
     denormalizeGasDropOff,
     encodeSwapLayerMessage,
     localnet,
+    decodeOutputToken,
 } from "../src/swapLayer";
 import {
     FEE_UPDATER_KEYPAIR,
@@ -1127,6 +1128,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1156,6 +1158,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1189,6 +1192,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: new Array(32).fill(0),
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1219,6 +1223,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1263,6 +1268,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1301,6 +1307,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1352,6 +1359,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1451,6 +1459,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1978,6 +1987,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -2316,6 +2326,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
+                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
                             payload,
                         },
                     );

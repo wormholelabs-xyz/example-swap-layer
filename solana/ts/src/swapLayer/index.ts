@@ -31,6 +31,7 @@ export type InitiateTransferArgs = {
     targetChain: number;
     relayOptions: RelayOptions | null;
     recipient: Array<number>;
+    encodedOutputToken: Buffer;
     payload: Buffer | null;
 };
 
