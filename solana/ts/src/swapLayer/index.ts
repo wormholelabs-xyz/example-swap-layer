@@ -9,7 +9,7 @@ import { Connection, PublicKey, SystemProgram, TransactionInstruction } from "@s
 import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
 import IDL from "../../../target/idl/swap_layer.json";
 import { SwapLayer } from "../../../target/types/swap_layer";
-import { Custodian, Peer, RelayParams } from "./state";
+import { Custodian, Peer, RelayParams, StagedTransfer } from "./state";
 
 export const PROGRAM_IDS = ["SwapLayer1111111111111111111111111111111111"] as const;
 
@@ -193,6 +193,21 @@ export class SwapLayerProgram {
             srcSwapToken: splToken.getAssociatedTokenAddressSync(sourceMint, authority, true),
             dstSwapToken: splToken.getAssociatedTokenAddressSync(destinationMint, authority, true),
         };
+    }
+
+    stagedTransferAddress(preparedFill: PublicKey) {
+        return StagedTransfer.address(this.ID, preparedFill);
+    }
+
+    stagedTransferTokenAddress(stagedTransfer: PublicKey): PublicKey {
+        return PublicKey.findProgramAddressSync(
+            [Buffer.from("staged-custody-token"), stagedTransfer.toBuffer()],
+            this.ID,
+        )[0];
+    }
+
+    async fetchStagedTransfer(addr: PublicKey): Promise<StagedTransfer> {
+        return this.program.account.stagedTransfer.fetch(addr);
     }
 
     async fetchCustodian(input?: { address: PublicKey }): Promise<Custodian> {
@@ -456,8 +471,6 @@ export class SwapLayerProgram {
             throw new Error("fee recipient token account not found");
         }
 
-        const tokenRouter = this.tokenRouterProgram();
-
         return this.program.methods
             .completeTransferRelay()
             .accounts({
@@ -498,8 +511,6 @@ export class SwapLayerProgram {
         recipient ??= payer;
         recipientTokenAccount ??= splToken.getAssociatedTokenAddressSync(this.mint, recipient);
 
-        const tokenRouter = this.tokenRouterProgram();
-
         return this.program.methods
             .completeTransferDirect()
             .accounts({
@@ -531,11 +542,13 @@ export class SwapLayerProgram {
 
         beneficiary ??= payer;
 
-        const tokenRouter = this.tokenRouterProgram();
+        const stagedTransfer = this.stagedTransferAddress(preparedFill);
+        const stagedCustodyToken = this.stagedTransferTokenAddress(stagedTransfer);
 
         return this.program.methods
-            .completeTransferDirect()
+            .completeTransferPayload()
             .accounts({
+                payer: payer,
                 consumeSwapLayerFill: await this.consumeSwapLayerFillComposite(
                     {
                         preparedFill,
@@ -544,7 +557,11 @@ export class SwapLayerProgram {
                     },
                     { sourceChain },
                 ),
+                stagedTransfer,
+                stagedCustodyToken,
+                usdc: this.usdcComposite(this.mint),
                 tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
             })
             .instruction();
     }

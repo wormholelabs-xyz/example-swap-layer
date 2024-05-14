@@ -38,6 +38,7 @@ import {
     Custodian,
     Peer,
     RelayParams,
+    StagedTransfer,
     SwapLayerProgram,
     U32_MAX,
     UpdateRelayParametersArgs,
@@ -2371,6 +2372,80 @@ describe("Swap Layer", () => {
                     expect(preparedCustodyTokenBalance).equals(amountIn);
                 });
             });
+
+            describe("Inbound", function () {
+                it("Complete Transfer", async function () {
+                    const payload = Buffer.from("Insert payload here");
+
+                    const result = await createAndRedeemCctpFillForTest(
+                        connection,
+                        tokenRouter,
+                        swapLayer,
+                        tokenRouterLkupTable,
+                        payer,
+                        testCctpNonce++,
+                        foreignChain,
+                        foreignTokenRouterAddress,
+                        foreignSwapLayerAddress,
+                        wormholeSequence,
+                        encodeSwapLayerMessage({
+                            recipient: new UniversalAddress(
+                                recipient.publicKey.toString(),
+                                "base58",
+                            ),
+                            redeemMode: { mode: "Payload", payload },
+                            outputToken: { type: "Usdc" },
+                        }),
+                    );
+                    const { vaa, message } = result!;
+
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
+                    const beneficiary = Keypair.generate();
+
+                    const transferIx = await swapLayer.completeTransferPayloadIx(
+                        {
+                            payer: payer.publicKey,
+                            beneficiary: beneficiary.publicKey,
+                            preparedFill,
+                        },
+                        foreignChain,
+                    );
+
+                    await expectIxOk(connection, [transferIx], [payer]);
+
+                    // Balance check.
+                    const stagedTransfer = swapLayer.stagedTransferAddress(preparedFill);
+                    const stagedTransferTokenAddress =
+                        swapLayer.stagedTransferTokenAddress(stagedTransfer);
+
+                    const { amount: balanceAfter } = await splToken.getAccount(
+                        connection,
+                        stagedTransferTokenAddress,
+                    );
+                    expect(balanceAfter).to.equal(message.deposit!.header.amount);
+
+                    // State check.
+                    const stagedTransferData = await swapLayer.fetchStagedTransfer(stagedTransfer);
+                    hackedExpectDeepEqual(
+                        stagedTransferData,
+                        new StagedTransfer(
+                            {
+                                preparedFill,
+                                bump: stagedTransferData.seeds.bump,
+                            },
+                            {
+                                stagedCustodyTokenBump:
+                                    stagedTransferData.info.stagedCustodyTokenBump,
+                                stagedBy: payer.publicKey,
+                                sourceChain: foreignChain,
+                                recipient: Array.from(recipient.publicKey.toBuffer()),
+                                isNative: false,
+                            },
+                            payload,
+                        ),
+                    );
+                });
+            });
         });
 
         describe("Jupiter V6 Swap", function () {
@@ -2540,19 +2615,4 @@ async function updateRelayParamsForTest(
     );
 
     await expectIxOk(swapLayer.program.provider.connection, [ix], [feeUpdater]);
-}
-
-async function addPeerForTest(
-    swapLayer: SwapLayerProgram,
-    ownerOrAssistant: Keypair,
-    addPeerArgs: AddPeerArgs,
-) {
-    const ix = await swapLayer.addPeerIx(
-        {
-            ownerOrAssistant: ownerOrAssistant.publicKey,
-        },
-        addPeerArgs,
-    );
-
-    expectIxOk(swapLayer.program.provider.connection, [ix], [ownerOrAssistant]);
 }

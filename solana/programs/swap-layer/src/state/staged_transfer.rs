@@ -45,7 +45,7 @@ impl StagedTransfer {
             //+ 32 // payload_sender
             + 32 // recipient
             + 1 // is_native
-            + 2 // payload len
+            + 4 // payload len
         ;
 
         payload_len.checked_add(FIXED)

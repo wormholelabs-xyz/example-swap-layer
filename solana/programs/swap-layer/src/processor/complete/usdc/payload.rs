@@ -54,7 +54,7 @@ pub struct CompleteTransferPayload<'info> {
         ],
         bump,
     )]
-    staged_custody_token: Account<'info, token::TokenAccount>,
+    staged_custody_token: Box<Account<'info, token::TokenAccount>>,
 
     usdc: Usdc<'info>,
 
@@ -76,7 +76,7 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
     let staged_transfer = &mut ctx.accounts.staged_transfer;
 
     // Set the staged transfer if it hasn't been set yet.
-    if staged_transfer.staged_by != Pubkey::default() {
+    if staged_transfer.staged_by == Pubkey::default() {
         staged_transfer.set_inner(StagedTransfer {
             seeds: StagedTransferSeeds {
                 prepared_fill: ctx.accounts.consume_swap_layer_fill.prepared_fill_key(),
