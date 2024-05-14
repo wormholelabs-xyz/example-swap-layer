@@ -567,6 +567,27 @@ export class SwapLayerProgram {
             .instruction();
     }
 
+    async consumeStagedTransferIx(accounts: {
+        stagedTransfer: PublicKey;
+        recipient: PublicKey;
+        dstToken: PublicKey;
+        beneficiary: PublicKey;
+    }): Promise<TransactionInstruction> {
+        const { stagedTransfer, recipient, dstToken, beneficiary } = accounts;
+
+        return this.program.methods
+            .consumeStagedTransfer()
+            .accounts({
+                recipient,
+                beneficiary,
+                stagedTransfer,
+                dstToken,
+                stagedCustodyToken: this.stagedTransferTokenAddress(stagedTransfer),
+                tokenProgram: splToken.TOKEN_PROGRAM_ID,
+            })
+            .instruction();
+    }
+
     async completeSwapDirectIx(
         accounts: {
             payer: PublicKey;

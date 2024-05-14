@@ -2385,7 +2385,9 @@ describe("Swap Layer", () => {
             });
 
             describe("Inbound", function () {
-                it("Complete Transfer", async function () {
+                const localVariables = {};
+
+                it("Stage Transfer", async function () {
                     const payload = Buffer.from("Insert payload here");
 
                     const result = await createAndRedeemCctpFillForTest(
@@ -2449,11 +2451,68 @@ describe("Swap Layer", () => {
                                     stagedTransferData.info.stagedCustodyTokenBump,
                                 stagedBy: payer.publicKey,
                                 sourceChain: foreignChain,
-                                recipient: Array.from(recipient.publicKey.toBuffer()),
+                                recipient: recipient.publicKey,
                                 isNative: false,
                             },
                             payload,
                         ),
+                    );
+
+                    localVariables["stagedTransfer"] = stagedTransfer;
+                });
+
+                it("Consume Staged Transfer", async function () {
+                    const stagedTransfer = localVariables["stagedTransfer"];
+                    const beneficiary = Keypair.generate();
+                    const dstTokenOwner = Keypair.generate();
+
+                    const dstToken = await splToken.getOrCreateAssociatedTokenAccount(
+                        connection,
+                        payer,
+                        USDC_MINT_ADDRESS,
+                        dstTokenOwner.publicKey,
+                    );
+
+                    const expectedLamports = await connection
+                        .getAccountInfo(stagedTransfer)
+                        .then((info) => info!.lamports);
+                    const custodyToken = swapLayer.stagedTransferTokenAddress(stagedTransfer);
+                    const { amount: stagedTokenBalance } = await splToken.getAccount(
+                        connection,
+                        custodyToken,
+                    );
+                    const expectedCustodyTokenLamports = await connection
+                        .getAccountInfo(custodyToken)
+                        .then((info) => info!.lamports);
+
+                    const consumeIx = await swapLayer.consumeStagedTransferIx({
+                        recipient: recipient.publicKey,
+                        beneficiary: beneficiary.publicKey,
+                        stagedTransfer,
+                        dstToken: dstToken.address,
+                    });
+
+                    await expectIxOk(connection, [consumeIx], [recipient]);
+
+                    // Verify that accounts were closed.
+                    {
+                        const accInfo = await connection.getAccountInfo(stagedTransfer);
+                        expect(accInfo).is.null;
+                    }
+                    {
+                        const accInfo = await connection.getAccountInfo(custodyToken);
+                        expect(accInfo).is.null;
+                    }
+
+                    const { amount: dstTokenBalance } = await splToken.getAccount(
+                        connection,
+                        dstToken.address,
+                    );
+                    expect(dstTokenBalance).equals(stagedTokenBalance);
+
+                    const beneficiaryBalance = await connection.getBalance(beneficiary.publicKey);
+                    expect(beneficiaryBalance).equals(
+                        expectedLamports + expectedCustodyTokenLamports,
                     );
                 });
             });

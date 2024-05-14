@@ -111,6 +111,10 @@ pub mod swap_layer {
         processor::complete_transfer_payload(ctx)
     }
 
+    pub fn consume_staged_transfer(ctx: Context<ConsumeStagedTransfer>) -> Result<()> {
+        processor::consume_staged_transfer(ctx)
+    }
+
     pub fn initiate_transfer(
         ctx: Context<InitiateTransfer>,
         args: InitiateTransferArgs,

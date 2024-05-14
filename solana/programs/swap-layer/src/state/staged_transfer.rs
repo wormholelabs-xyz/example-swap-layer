@@ -19,7 +19,7 @@ pub struct StagedTransferInfo {
     // pub payload_sender: [u8; 32],
 
     // The encoded recipient must be the caller.
-    pub recipient: [u8; 32],
+    pub recipient: Pubkey,
 
     // Indicates whether the output token type is Gas.
     pub is_native: bool,

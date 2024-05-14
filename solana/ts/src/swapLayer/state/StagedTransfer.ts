@@ -9,7 +9,7 @@ export type StagedTransferInfo = {
     stagedCustodyTokenBump: number;
     stagedBy: PublicKey;
     sourceChain: number;
-    recipient: Array<number>;
+    recipient: PublicKey;
     isNative: boolean;
 };
 
