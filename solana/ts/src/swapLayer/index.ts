@@ -518,6 +518,37 @@ export class SwapLayerProgram {
             .instruction();
     }
 
+    async completeTransferPayloadIx(
+        accounts: {
+            payer: PublicKey;
+            preparedFill: PublicKey;
+            peer?: PublicKey;
+            beneficiary?: PublicKey;
+        },
+        sourceChain?: wormholeSdk.ChainId,
+    ) {
+        let { payer, preparedFill, peer, beneficiary } = accounts;
+
+        beneficiary ??= payer;
+
+        const tokenRouter = this.tokenRouterProgram();
+
+        return this.program.methods
+            .completeTransferDirect()
+            .accounts({
+                consumeSwapLayerFill: await this.consumeSwapLayerFillComposite(
+                    {
+                        preparedFill,
+                        beneficiary,
+                        associatedPeer: peer,
+                    },
+                    { sourceChain },
+                ),
+                tokenProgram: splToken.TOKEN_PROGRAM_ID,
+            })
+            .instruction();
+    }
+
     async completeSwapDirectIx(
         accounts: {
             payer: PublicKey;
