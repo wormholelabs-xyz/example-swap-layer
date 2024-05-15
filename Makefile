@@ -5,7 +5,7 @@ clean:
 
 .PHONY: fast-transfer-sync
 fast-transfer-sync:
-	git submodule update --init
+	git submodule update --remote
 	git submodule sync --recursive
 
 .PHONY: fast-transfer-clean
