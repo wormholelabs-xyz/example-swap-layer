@@ -18,8 +18,9 @@ fast-transfer-setup: fast-transfer-sync
 
 .PHONY: fast-transfer-sdk
 fast-transfer-sdk: fast-transfer-setup
-	cd lib/example-liquidity-layer && npm ci && npm run build --workspace solana && npm pack --workspace solana 
+	cd lib/example-liquidity-layer && $(MAKE) build && npm run build --workspace solana && npm pack --workspace universal/ts && npm pack --workspace solana 
 
 node_modules: fast-transfer-sdk
+	npm update @wormhole-foundation/example-liquidity-layer-definitions
 	npm update @wormhole-foundation/example-liquidity-layer-solana 
 	npm ci
