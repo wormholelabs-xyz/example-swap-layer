@@ -39,12 +39,7 @@ impl StagedTransfer {
     pub fn checked_compute_size(payload_len: usize) -> Option<usize> {
         const FIXED: usize = 8 // DISCRIMINATOR
             + StagedTransferSeeds::INIT_SPACE
-            + 1 // staged_custody_token_bump
-            + 32 // staged_by
-            + 2 // source_chain
-            //+ 32 // payload_sender
-            + 32 // recipient
-            + 1 // is_native
+            + StagedTransferInfo::INIT_SPACE
             + 4 // payload len
         ;
 

@@ -92,11 +92,9 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
             },
             recipient_payload: get_swap_message_payload(&swap_msg)?.to_vec(),
         });
-
-        Ok(())
-    } else {
-        Ok(())
     }
+
+    Ok(())
 }
 
 fn try_compute_staged_transfer_size(swap_msg: &SwapMessageV1) -> Result<usize> {

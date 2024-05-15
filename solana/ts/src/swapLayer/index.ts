@@ -202,7 +202,7 @@ export class SwapLayerProgram {
 
     stagedTransferTokenAddress(stagedTransfer: PublicKey): PublicKey {
         return PublicKey.findProgramAddressSync(
-            [Buffer.from("staged-custody-token"), stagedTransfer.toBuffer()],
+            [Buffer.from("staged-custody"), stagedTransfer.toBuffer()],
             this.ID,
         )[0];
     }
