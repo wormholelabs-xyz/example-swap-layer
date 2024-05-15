@@ -46,7 +46,7 @@ import {
     denormalizeGasDropOff,
     encodeSwapLayerMessage,
     localnet,
-    decodeOutputToken,
+    encodeOutputToken,
 } from "../src/swapLayer";
 import {
     FEE_UPDATER_KEYPAIR,
@@ -1128,7 +1128,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1158,7 +1158,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1192,7 +1192,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: new Array(32).fill(0),
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1223,7 +1223,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1268,7 +1268,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1307,7 +1307,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1359,7 +1359,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1459,7 +1459,7 @@ describe("Swap Layer", () => {
                                 maxRelayerFee: new BN(maxRelayerFee),
                             },
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -1685,8 +1685,51 @@ describe("Swap Layer", () => {
                     await expectIxErr(connection, [transferIx], [payer], "InvalidPeer");
                 });
 
-                it.skip("Cannot Complete Transfer (InvalidOutputToken)", async function () {
-                    // TODO: Need to use encoded swaptype for this test.
+                it("Cannot Complete Transfer (Invalid Output Token)", async function () {
+                    const result = await createAndRedeemCctpFillForTest(
+                        connection,
+                        tokenRouter,
+                        swapLayer,
+                        tokenRouterLkupTable,
+                        payer,
+                        testCctpNonce++,
+                        foreignChain,
+                        foreignTokenRouterAddress,
+                        foreignSwapLayerAddress,
+                        wormholeSequence,
+                        encodeSwapLayerMessage({
+                            recipient: new UniversalAddress(payer.publicKey.toString(), "base58"),
+                            redeemMode: {
+                                mode: "Relay",
+                                gasDropoff: 0,
+                                relayingFee: 6900n,
+                            },
+                            outputToken: {
+                                type: "Gas",
+                                swap: {
+                                    deadline: 0,
+                                    limitAmount: 0n,
+                                    type: {
+                                        id: "JupiterV6",
+                                        dexProgramId: { isSome: false },
+                                    },
+                                },
+                            },
+                        }),
+                    );
+                    const { vaa } = result!;
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
+
+                    const transferIx = await swapLayer.completeTransferRelayIx(
+                        {
+                            payer: payer.publicKey,
+                            preparedFill,
+                            recipient: payer.publicKey,
+                        },
+                        foreignChain,
+                    );
+
+                    await expectIxErr(connection, [transferIx], [payer], "InvalidOutputToken");
                 });
 
                 it("Cannot Complete Transfer (Invalid Recipient)", async function () {
@@ -1987,7 +2030,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload: null,
                         },
                     );
@@ -2190,8 +2233,52 @@ describe("Swap Layer", () => {
                     await expectIxErr(connection, [transferIx], [payer], "InvalidRecipient");
                 });
 
-                it.skip("Cannot Complete Transfer (InvalidOutputToken)", async function () {
-                    // TODO: Need to use encoded swaptype for this test.
+                it("Cannot Complete Transfer (Invalid Output Token)", async function () {
+                    const result = await createAndRedeemCctpFillForTest(
+                        connection,
+                        tokenRouter,
+                        swapLayer,
+                        tokenRouterLkupTable,
+                        payer,
+                        testCctpNonce++,
+                        foreignChain,
+                        foreignTokenRouterAddress,
+                        foreignSwapLayerAddress,
+                        wormholeSequence,
+                        encodeSwapLayerMessage({
+                            recipient: new UniversalAddress(
+                                recipient.publicKey.toString(),
+                                "base58",
+                            ),
+                            redeemMode: {
+                                mode: "Direct",
+                            },
+                            outputToken: {
+                                type: "Gas",
+                                swap: {
+                                    deadline: 0,
+                                    limitAmount: 0n,
+                                    type: {
+                                        id: "JupiterV6",
+                                        dexProgramId: { isSome: false },
+                                    },
+                                },
+                            },
+                        }),
+                    );
+                    const { vaa } = result!;
+                    const preparedFill = tokenRouter.preparedFillAddress(vaa);
+
+                    const transferIx = await swapLayer.completeTransferDirectIx(
+                        {
+                            payer: payer.publicKey,
+                            preparedFill,
+                            recipient: recipient.publicKey,
+                        },
+                        foreignChain,
+                    );
+
+                    await expectIxErr(connection, [transferIx], [payer], "InvalidOutputToken");
                 });
 
                 it("Complete Transfer (Recipient Not Payer)", async function () {
@@ -2326,7 +2413,7 @@ describe("Swap Layer", () => {
                             targetChain: foreignChain,
                             relayOptions: null,
                             recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(decodeOutputToken({ type: "Usdc" })),
+                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
                             payload,
                         },
                     );
@@ -2526,15 +2613,6 @@ describe("Swap Layer", () => {
                         expectedLamports + expectedCustodyTokenLamports,
                     );
                 });
-            });
-        });
-
-        describe("Jupiter V6 Swap", function () {
-            // TODO
-
-            before("Not Paused", async function () {
-                const custodian = await tokenRouter.fetchCustodian();
-                expect(custodian.paused).is.false;
             });
         });
     });
