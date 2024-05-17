@@ -29,6 +29,7 @@
   ],
   "workspaces": [
     "evm/ts-sdk",
-    "solana"
+    "solana",
+    "sdk"
   ]
 }

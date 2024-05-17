@@ -1,6 +1,6 @@
 {
   "name": "@wormhole-foundation/sdk-definitions-fast-transfers",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.0",
   "directories": {
     "test": "__tests__"
   },
