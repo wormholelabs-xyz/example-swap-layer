@@ -28,10 +28,11 @@ pub struct RelayParams {
 }
 
 #[account]
-#[derive(Default, InitSpace)]
+#[derive(Debug, InitSpace)]
 /// Foreign Peer account data.
 pub struct Peer {
     /// Peer chain. Cannot equal `1` (Solana's Chain ID).
+    /// TODO: add bump seed
     pub chain: u16,
     /// Peer address. Cannot be zero address.
     pub address: [u8; 32],

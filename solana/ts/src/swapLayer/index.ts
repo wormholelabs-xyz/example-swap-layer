@@ -595,7 +595,6 @@ export class SwapLayerProgram {
             recipient: PublicKey;
             dstMint?: PublicKey;
             beneficiary?: PublicKey;
-            srcMint?: PublicKey;
         },
         args: {
             cpiInstruction: TransactionInstruction;
@@ -604,9 +603,8 @@ export class SwapLayerProgram {
         const { payer, preparedFill, recipient } = accounts;
         const { cpiInstruction } = args;
 
-        let { beneficiary, srcMint, dstMint } = accounts;
+        let { beneficiary, dstMint } = accounts;
         beneficiary ??= payer;
-        srcMint ??= this.mint;
         dstMint ??= splToken.NATIVE_MINT;
 
         const swapAuthority = this.swapAuthorityAddress(preparedFill);
@@ -622,7 +620,7 @@ export class SwapLayerProgram {
                     }),
                     authority: swapAuthority,
                     srcSwapToken: splToken.getAssociatedTokenAddressSync(
-                        srcMint,
+                        this.mint,
                         swapAuthority,
                         true, // allowOwnerOffCurve
                     ),
@@ -631,7 +629,7 @@ export class SwapLayerProgram {
                         swapAuthority,
                         true, // allowOwnerOffCurve
                     ),
-                    srcMint,
+                    usdc: this.usdcComposite(),
                     dstMint,
                     associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
                     tokenProgram: splToken.TOKEN_PROGRAM_ID,

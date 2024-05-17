@@ -5,7 +5,7 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use swap_layer_messages::types::{
-    OutputToken, SwapType, TraderJoeSwapParameters, UniswapSwapParameters,
+    OutputToken, SwapType, TraderJoeSwapParameters, Uint48, UniswapSwapParameters,
 };
 
 // EVM gas overheads in gas units.
@@ -35,12 +35,11 @@ fn compound(percentage: u32, base: u64) -> Option<u64> {
         #[allow(clippy::cast_possible_truncation)]
         const MAX: u128 = crate::MAX_BPS as u128;
 
-        let base = u128::from(base);
+        let base: u128 = u128::from(base);
 
-        let compounded =
-            base.saturating_add(base.saturating_mul(percentage.into()).saturating_div(MAX));
-
-        u64::try_from(compounded).ok()
+        base.saturating_add(base.saturating_mul(percentage.into()).saturating_div(MAX))
+            .try_into()
+            .ok()
     }
 }
 
@@ -88,7 +87,7 @@ fn calculate_evm_gas_cost(
 }
 
 fn calculate_gas_dropoff_cost(
-    denorm_gas_dropoff: u64,
+    specified_gas_dropoff: u32,
     gas_dropoff_margin: u32,
     native_token_price: u64,
 ) -> Option<u64> {
@@ -97,8 +96,8 @@ fn calculate_gas_dropoff_cost(
 
     // Using u128 to prevent overflow. If this calculation does overflow,
     // one of the inputs is grossly incorrect/misconfigured.
-    let dropoff_cost = u128::from(denorm_gas_dropoff)
-        .checked_mul(u128::from(native_token_price))?
+    let dropoff_cost = u128::from(denormalize_gas_dropoff(specified_gas_dropoff))
+        .checked_mul(native_token_price.into())?
         .saturating_div(ONE_SOL_U128);
 
     compound(gas_dropoff_margin, u64::try_from(dropoff_cost).ok()?)
@@ -106,7 +105,7 @@ fn calculate_gas_dropoff_cost(
 
 pub fn calculate_relayer_fee(
     relay_params: &RelayParams,
-    denorm_gas_dropoff: u64,
+    specified_gas_dropoff: u32,
     output_token: &OutputToken,
 ) -> Result<u64> {
     require!(
@@ -118,45 +117,53 @@ pub fn calculate_relayer_fee(
     let mut relayer_fee = u64::from(relay_params.base_fee);
 
     // Calculate the gas dropoff cost in USDC terms.
-    if denorm_gas_dropoff > 0 {
+    if specified_gas_dropoff > 0 {
         require!(
-            denorm_gas_dropoff <= denormalize_gas_dropoff(relay_params.max_gas_dropoff),
+            specified_gas_dropoff <= relay_params.max_gas_dropoff,
             SwapLayerError::InvalidGasDropoff
         );
 
         let gas_dropoff_cost = calculate_gas_dropoff_cost(
-            denorm_gas_dropoff,
+            specified_gas_dropoff,
             relay_params.gas_dropoff_margin,
             relay_params.native_token_price,
         )
         .ok_or(SwapLayerError::GasDropoffCalculationFailed)?;
+
         relayer_fee = relayer_fee.saturating_add(gas_dropoff_cost);
     }
 
     // Compute the relayer fee based on the cost of the relay in the
     // target execution environment's gas units (converted to USDC).
-    let _ = match relay_params.execution_params {
-        ExecutionParams::None => {
-            err!(SwapLayerError::InvalidExecutionParams)
-        }
+    match relay_params.execution_params {
         ExecutionParams::Evm {
             gas_price,
             gas_price_margin,
         } => {
-            let mut total_gas = EVM_GAS_OVERHEAD;
+            // let mut total_gas = EVM_GAS_OVERHEAD;
 
-            if denorm_gas_dropoff > 0 {
-                total_gas = total_gas.saturating_add(DROPOFF_GAS_OVERHEAD);
-            }
+            let total_gas = EVM_GAS_OVERHEAD
+                .saturating_add(if specified_gas_dropoff > 0 {
+                    DROPOFF_GAS_OVERHEAD
+                } else {
+                    0
+                })
+                .saturating_add(match output_token {
+                    OutputToken::Gas(swap) | OutputToken::Other { address: _, swap } => {
+                        calculate_evm_swap_overhead(&swap.swap_type)
+                            .ok_or(SwapLayerError::EvmGasCalculationFailed)?
+                    }
+                    _ => 0,
+                });
 
-            let swap_overhead = match output_token {
-                OutputToken::Gas(swap) | OutputToken::Other { address: _, swap } => {
-                    calculate_evm_swap_overhead(&swap.swap_type)
-                        .ok_or(SwapLayerError::EvmGasCalculationFailed)?
-                }
-                _ => 0,
-            };
-            total_gas = total_gas.saturating_add(swap_overhead);
+            // let swap_overhead = match output_token {
+            //     OutputToken::Gas(swap) | OutputToken::Other { address: _, swap } => {
+            //         calculate_evm_swap_overhead(&swap.swap_type)
+            //             .ok_or(SwapLayerError::EvmGasCalculationFailed)?
+            //     }
+            //     _ => 0,
+            // };
+            // total_gas = total_gas.saturating_add(swap_overhead);
 
             let evm_gas_cost = calculate_evm_gas_cost(
                 gas_price,
@@ -165,13 +172,16 @@ pub fn calculate_relayer_fee(
                 relay_params.native_token_price,
             )
             .ok_or(SwapLayerError::EvmGasCalculationFailed)?;
+
             relayer_fee = relayer_fee.saturating_add(evm_gas_cost);
 
-            Ok(())
-        }
-    };
+            // Relaying fee cannot exceed uint48.
+            Uint48::try_from(relayer_fee).map_err(|_| SwapLayerError::RelayerFeeOverflow)?;
 
-    Ok(relayer_fee)
+            Ok(relayer_fee)
+        }
+        _ => err!(SwapLayerError::InvalidExecutionParams),
+    }
 }
 
 #[cfg(test)]
