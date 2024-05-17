@@ -17,6 +17,7 @@ const CUSTODIAN_BUMP: u8 = 254;
 const COMPLETE_TOKEN_SEED_PREFIX: &[u8] = b"complete";
 
 const SWAP_AUTHORITY_SEED_PREFIX: &[u8] = b"swap-authority";
+const TRANSFER_AUTHORITY_SEED_PREFIX: &[u8] = b"transfer-authority";
 
 const PREPARED_ORDER_SEED_PREFIX: &[u8] = b"prepared-order";
 const STAGED_CUSTODY_TOKEN_SEED_PREFIX: &[u8] = b"staged-custody";

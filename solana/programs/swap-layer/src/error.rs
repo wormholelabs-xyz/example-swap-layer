@@ -43,6 +43,7 @@ pub enum SwapLayerError {
     EitherSenderOrProgramTransferAuthority = 0x240,
     InvalidStagedInput = 0x250,
     RelayingFeeExceedsMinAmountOut = 0x260,
+    ZeroMinAmountOut = 0x262,
 
     // Swap
     SwapPastDeadline = 0x300,

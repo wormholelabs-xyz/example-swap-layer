@@ -40,14 +40,15 @@ where
 
     // In case the slippage bps is configured to be greater than the max, we will set it to the max
     // in this case because slippage cannot exceed 100%.
-    let slippage_bps = swap_args.slippage_bps().min(MAX_SLIPPAGE_BPS);
+    let after_slippage_bps =
+        MAX_SLIPPAGE_BPS.saturating_sub(swap_args.slippage_bps().min(MAX_SLIPPAGE_BPS));
 
     // Only upcast to u128 if the quoted out amount * 10_000 will overflow u64.
     if quoted_out_amount > MAX_QUOTED_OUT_AMOUNT {
         // There are no side effects here because MAX_SLIPPAGE_BPS is not zero.
         #[allow(clippy::arithmetic_side_effects)]
         quoted_out_amount
-            .saturating_mul(slippage_bps.into())
+            .saturating_mul(after_slippage_bps.into())
             .saturating_div(MAX_SLIPPAGE_BPS.into())
     } else {
         // There will be no side effects with this operation. And because MAX_SLIPPAGE_BPS is
@@ -56,7 +57,7 @@ where
         #[allow(clippy::as_conversions)]
         #[allow(clippy::cast_possible_truncation)]
         let limit_amount = u128::from(quoted_out_amount)
-            .saturating_mul(slippage_bps.into())
+            .saturating_mul(after_slippage_bps.into())
             .saturating_div(MAX_SLIPPAGE_BPS.into()) as u64;
 
         limit_amount

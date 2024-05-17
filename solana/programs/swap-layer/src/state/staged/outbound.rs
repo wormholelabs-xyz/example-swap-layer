@@ -36,16 +36,6 @@ pub enum StagedRedeem {
     Payload(Vec<u8>),
 }
 
-// /// Options specifying how the total relayer fee should be calculated.
-// #[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize, InitSpace)]
-// pub struct RelayOptions {
-//     /// Normalized amount of gas to drop off on destination network.
-//     pub gas_dropoff: u32,
-
-//     /// Maximum fee that a relayer can charge for the transfer.
-//     pub max_relayer_fee: u64,
-// }
-
 #[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct StagedOutboundInfo {
     pub custody_token_bump: u8,
@@ -55,6 +45,9 @@ pub struct StagedOutboundInfo {
 
     /// The mint of the token to be transferred.
     pub src_mint: Pubkey,
+
+    /// Sender of the swap message.
+    pub sender: Pubkey,
 
     /// Wormhole chain ID of the target network.
     pub target_chain: u16,
@@ -94,7 +87,7 @@ impl StagedOutbound {
             })
             .saturating_add(match redeem_option {
                 Some(redeem) => match redeem {
-                    RedeemOption::Relay { .. } => 8, // StagedRedeem::Relay(u64)
+                    RedeemOption::Relay { .. } => 12, // gas_dropoff + relaying_fee
                     RedeemOption::Payload(payload) => payload.len().saturating_add(4),
                 },
                 None => 0,

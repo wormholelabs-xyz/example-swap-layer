@@ -12,6 +12,7 @@ import { CctpTokenBurnMessage } from "@wormhole-foundation/example-liquidity-lay
 import {
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
+    uint64ToBN,
 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import {
     CircleAttester,
@@ -29,14 +30,14 @@ import {
     postLiquidityLayerVaa,
     toUniversalAddress,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
-import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
 import { PreparedOrder } from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter/state";
 import { ChainId, toChain, toChainId } from "@wormhole-foundation/sdk-base";
 import { UniversalAddress } from "@wormhole-foundation/sdk-definitions";
-import { use as chaiUse, expect } from "chai";
+import { assert } from "chai";
 import {
     AddPeerArgs,
     Custodian,
+    OutputToken,
     Peer,
     RelayParams,
     StagedInbound,
@@ -45,20 +46,11 @@ import {
     UpdateRelayParametersArgs,
     calculateRelayerFee,
     denormalizeGasDropOff,
+    encodeOutputToken,
     encodeSwapLayerMessage,
     localnet,
-    encodeOutputToken,
-    OutputToken,
 } from "../src/swapLayer";
-import {
-    FEE_UPDATER_KEYPAIR,
-    REGISTERED_PEERS,
-    createLut,
-    hackedExpectDeepEqual,
-    tryNativeToUint8Array,
-} from "./helpers";
-
-chaiUse(require("chai-as-promised"));
+import { FEE_UPDATER_KEYPAIR, REGISTERED_PEERS, createLut, tryNativeToUint8Array } from "./helpers";
 
 const SOLANA_CHAIN_ID = toChainId("Solana");
 
@@ -86,17 +78,13 @@ describe("Swap Layer", () => {
 
     // Program SDKs
     const swapLayer = new SwapLayerProgram(connection, localnet(), USDC_MINT_ADDRESS);
-    const tokenRouter = new tokenRouterSdk.TokenRouterProgram(
-        connection,
-        tokenRouterSdk.localnet(),
-        USDC_MINT_ADDRESS,
-    );
+    const tokenRouter = swapLayer.tokenRouterProgram();
 
     let tokenRouterLkupTable: PublicKey;
 
     const relayParamsForTest: RelayParams = {
         baseFee: 100000,
-        nativeTokenPrice: new BN(1000000),
+        nativeTokenPrice: uint64ToBN(1000000),
         maxGasDropoff: 500000,
         gasDropoffMargin: 10000,
         executionParams: {
@@ -106,6 +94,10 @@ describe("Swap Layer", () => {
             },
         },
     };
+
+    let testCctpNonce = 2n ** 64n - 20n * 6400n;
+
+    let wormholeSequence = 2000n;
 
     describe("Admin", () => {
         describe("Initialize", () => {
@@ -121,7 +113,7 @@ describe("Swap Layer", () => {
 
                 const custodianData = await swapLayer.fetchCustodian();
 
-                hackedExpectDeepEqual(
+                assert.deepEqual(
                     custodianData,
                     new Custodian(
                         payer.publicKey,
@@ -201,7 +193,7 @@ describe("Swap Layer", () => {
         describe("Peer Registration", () => {
             const startParams: RelayParams = {
                 baseFee: 200000,
-                nativeTokenPrice: new BN(4000000),
+                nativeTokenPrice: uint64ToBN(4000000),
                 maxGasDropoff: 200000,
                 gasDropoffMargin: 50000,
                 executionParams: {
@@ -387,7 +379,7 @@ describe("Swap Layer", () => {
                     await expectIxOk(connection, [await createAddPeerIx()], [payer]);
 
                     const peer = await swapLayer.fetchPeer(foreignChain);
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         peer,
                         new Peer(foreignChain, foreignRecipientAddress, startParams),
                     );
@@ -538,7 +530,7 @@ describe("Swap Layer", () => {
                     await expectIxOk(connection, [await createUpdatePeerIx()], [payer]);
 
                     const peer = await swapLayer.fetchPeer(foreignChain);
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         peer,
                         new Peer(foreignChain, foreignSwapLayerAddress, relayParamsForTest),
                     );
@@ -582,7 +574,7 @@ describe("Swap Layer", () => {
                 // Confirm that the pending owner variable is set in the owner config.
                 const custodianData = await swapLayer.fetchCustodian();
 
-                hackedExpectDeepEqual(custodianData.pendingOwner, owner.publicKey);
+                assert.deepEqual(custodianData.pendingOwner, owner.publicKey);
             });
 
             it("Confirm Ownership Transfer Request as Pending Owner", async function () {
@@ -595,8 +587,8 @@ describe("Swap Layer", () => {
                 // Confirm that the custodian reflects the current ownership status.
                 {
                     const custodianData = await swapLayer.fetchCustodian();
-                    hackedExpectDeepEqual(custodianData.owner, owner.publicKey);
-                    hackedExpectDeepEqual(custodianData.pendingOwner, null);
+                    assert.deepEqual(custodianData.owner, owner.publicKey);
+                    assert.deepEqual(custodianData.pendingOwner, null);
                 }
             });
 
@@ -648,7 +640,7 @@ describe("Swap Layer", () => {
 
                 // Confirm that the pending owner variable is set in the owner config.
                 const custodianData = await swapLayer.fetchCustodian();
-                expect(custodianData.pendingOwner).to.eql(feeUpdater.publicKey);
+                assert.deepEqual(custodianData.pendingOwner, feeUpdater.publicKey);
             });
 
             it("Cannot Confirm Ownership Transfer Request as Non Pending Owner", async function () {
@@ -674,8 +666,8 @@ describe("Swap Layer", () => {
                 // Confirm that the custodian reflects the current ownership status.
                 {
                     const custodianData = await swapLayer.fetchCustodian();
-                    hackedExpectDeepEqual(custodianData.owner, feeUpdater.publicKey);
-                    hackedExpectDeepEqual(custodianData.pendingOwner, null);
+                    assert.deepEqual(custodianData.owner, feeUpdater.publicKey);
+                    assert.deepEqual(custodianData.pendingOwner, null);
                 }
 
                 // Set the owner back to the payer key.
@@ -699,8 +691,8 @@ describe("Swap Layer", () => {
                 // Confirm that the payer is the owner again.
                 {
                     const custodianData = await swapLayer.fetchCustodian();
-                    hackedExpectDeepEqual(custodianData.owner, owner.publicKey);
-                    hackedExpectDeepEqual(custodianData.pendingOwner, null);
+                    assert.deepEqual(custodianData.owner, owner.publicKey);
+                    assert.deepEqual(custodianData.pendingOwner, null);
                 }
             });
 
@@ -715,7 +707,7 @@ describe("Swap Layer", () => {
                 // Confirm that the pending owner variable is set in the owner config.
                 {
                     const custodianData = await swapLayer.fetchCustodian();
-                    expect(custodianData.pendingOwner).to.eql(feeUpdater.publicKey);
+                    assert.deepEqual(custodianData.pendingOwner, feeUpdater.publicKey);
                 }
 
                 // Confirm that the cancel ownership transfer request fails.
@@ -736,7 +728,7 @@ describe("Swap Layer", () => {
 
                 // Confirm the pending owner field was reset.
                 const custodianData = await swapLayer.fetchCustodian();
-                expect(custodianData.pendingOwner).to.eql(null);
+                assert.isNull(custodianData.pendingOwner);
             });
         });
 
@@ -778,7 +770,7 @@ describe("Swap Layer", () => {
 
                 // Confirm the assistant field was updated.
                 const custodianData = await swapLayer.fetchCustodian();
-                expect(custodianData.ownerAssistant).to.eql(feeUpdater.publicKey);
+                assert.deepEqual(custodianData.ownerAssistant, feeUpdater.publicKey);
 
                 // Set the assistant back to the assistant key.
                 await expectIxOk(
@@ -827,7 +819,7 @@ describe("Swap Layer", () => {
 
                 // Confirm the fee updater field was updated.
                 const custodianData = await swapLayer.fetchCustodian();
-                hackedExpectDeepEqual(custodianData.feeRecipientToken, feeRecipientToken);
+                assert.deepEqual(custodianData.feeRecipientToken, feeRecipientToken);
 
                 // Revert back to original fee updater.
                 await expectIxOk(
@@ -863,7 +855,7 @@ describe("Swap Layer", () => {
 
             it("Update Fee Recipient as Owner Assistant", async function () {
                 const ix = localVariables.get("ix") as TransactionInstruction;
-                expect(localVariables.delete("ix")).is.true;
+                assert.isTrue(localVariables.delete("ix"));
 
                 await splToken.getOrCreateAssociatedTokenAccount(
                     connection,
@@ -875,7 +867,8 @@ describe("Swap Layer", () => {
                 await expectIxOk(connection, [ix], [ownerAssistant]);
 
                 const custodianData = await swapLayer.fetchCustodian();
-                expect(custodianData.feeRecipientToken).to.eql(
+                assert.deepEqual(
+                    custodianData.feeRecipientToken,
                     splToken.getAssociatedTokenAddressSync(USDC_MINT_ADDRESS, newFeeRecipient),
                 );
             });
@@ -906,7 +899,7 @@ describe("Swap Layer", () => {
                 await expectIxOk(connection, [ix], [owner]);
 
                 const custodianData = await swapLayer.fetchCustodian();
-                expect(custodianData.feeRecipientToken).to.eql(feeRecipientToken);
+                assert.deepEqual(custodianData.feeRecipientToken, feeRecipientToken);
             });
         });
 
@@ -1055,7 +1048,7 @@ describe("Swap Layer", () => {
                 );
 
                 const peer = await swapLayer.fetchPeer(foreignChain);
-                hackedExpectDeepEqual(peer.relayParams, relayParams);
+                assert.deepEqual(peer.relayParams, relayParams);
             });
 
             it("Update Relay Parameters as Owner Assistant", async () => {
@@ -1078,7 +1071,7 @@ describe("Swap Layer", () => {
                 );
 
                 const peer = await swapLayer.fetchPeer(foreignChain);
-                hackedExpectDeepEqual(peer.relayParams, relayParams);
+                assert.deepEqual(peer.relayParams, relayParams);
             });
 
             it("Update Relay Parameters as Fee Updater", async () => {
@@ -1100,15 +1093,191 @@ describe("Swap Layer", () => {
                 );
 
                 const peer = await swapLayer.fetchPeer(foreignChain);
-                hackedExpectDeepEqual(peer.relayParams, relayParams);
+                assert.deepEqual(peer.relayParams, relayParams);
             });
         });
     });
 
     describe("Business Logic", function () {
-        let testCctpNonce = 2n ** 64n - 20n * 6400n;
+        describe("Stage Outbound", function () {
+            const localVariables = new Map<string, any>();
 
-        let wormholeSequence = 2000n;
+            it("Stage Outbound -- USDC In, Direct USDC Out", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amount = 690000n;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.mint,
+                    payer.publicKey,
+                );
+                const [approveIx, ix] = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                    },
+                    {
+                        useTransferAuthority: false,
+                        stagedInput: { usdc: { amount } },
+                        targetChain: foreignChain,
+                        recipient: foreignRecipientAddress,
+                        redeemOption: null,
+                        outputToken: null,
+                    },
+                );
+                assert.isNull(approveIx);
+
+                const { amount: balanceBefore } = await splToken.getAccount(
+                    connection,
+                    senderToken,
+                );
+                await expectIxOk(connection, [ix], [payer, stagedOutboundSigner]);
+
+                const { amount: balanceAfter } = await splToken.getAccount(connection, senderToken);
+                assert.equal(balanceBefore - balanceAfter, amount);
+
+                const stagedOutboundData = await swapLayer.fetchStagedOutbound(stagedOutbound);
+
+                // TODO: check account data
+                console.log(stagedOutboundData);
+
+                // Save for later.
+                localVariables.set("ix", ix);
+                localVariables.set("stagedOutboundSigner", stagedOutboundSigner);
+            });
+
+            it("Cannot Stage Outbound with Existing Staged Outbound Account", async function () {
+                const ix = localVariables.get("ix") as TransactionInstruction;
+                assert.isTrue(localVariables.delete("ix"));
+
+                const stagedOutboundSigner = localVariables.get("stagedOutboundSigner") as Keypair;
+                assert.isTrue(localVariables.delete("stagedOutboundSigner"));
+
+                await expectIxErr(
+                    connection,
+                    [ix],
+                    [payer, stagedOutboundSigner],
+                    `account Address { address: ${stagedOutboundSigner.publicKey.toString()}, base: None } already in use`,
+                );
+            });
+
+            it("Stage Outbound -- USDC In, Direct USDC Out with Program Transfer Authority", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amount = 690000n;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.mint,
+                    payer.publicKey,
+                );
+                const ixs = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                    },
+                    {
+                        useTransferAuthority: true,
+                        stagedInput: { usdc: { amount } },
+                        targetChain: foreignChain,
+                        recipient: foreignRecipientAddress,
+                        redeemOption: null,
+                        outputToken: null,
+                    },
+                );
+                assert.isNotNull(ixs[0]);
+
+                const { amount: balanceBefore } = await splToken.getAccount(
+                    connection,
+                    senderToken,
+                );
+                await expectIxOk(connection, ixs, [payer, stagedOutboundSigner]);
+
+                const { amount: balanceAfter } = await splToken.getAccount(connection, senderToken);
+                assert.equal(balanceBefore - balanceAfter, amount);
+            });
+
+            it("Stage Outbound -- USDC In, Relay USDC Out", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amount = 690000n;
+                const gasDropoff = 42069;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.mint,
+                    payer.publicKey,
+                );
+                const [, ix] = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                    },
+                    {
+                        useTransferAuthority: false,
+                        stagedInput: { usdc: { amount } },
+                        targetChain: foreignChain,
+                        recipient: foreignRecipientAddress,
+                        redeemOption: { relay: { gasDropoff, maxRelayerFee: 1000000000n } },
+                        outputToken: null,
+                    },
+                );
+
+                const { amount: balanceBefore } = await splToken.getAccount(
+                    connection,
+                    senderToken,
+                );
+                await expectIxOk(connection, [ix], [payer, stagedOutboundSigner]);
+
+                const { amount: balanceAfter } = await splToken.getAccount(connection, senderToken);
+
+                const { relayParams } = await swapLayer.fetchPeer(foreignChain);
+                const expectedRelayerFee = calculateRelayerFee(
+                    relayParams,
+                    denormalizeGasDropOff(gasDropoff),
+                    { type: "Usdc" },
+                );
+                assert.equal(balanceBefore - balanceAfter, amount + expectedRelayerFee);
+            });
+
+            it("Stage Outbound -- USDC In, Payload USDC Out", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amount = 690000n;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.mint,
+                    payer.publicKey,
+                );
+                const ixs = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                    },
+                    {
+                        useTransferAuthority: true,
+                        stagedInput: { usdc: { amount } },
+                        targetChain: foreignChain,
+                        recipient: foreignRecipientAddress,
+                        redeemOption: { payload: Buffer.from("All your base are belong to us.") },
+                        outputToken: null,
+                    },
+                );
+                assert.isNotNull(ixs[0]);
+
+                const { amount: balanceBefore } = await splToken.getAccount(
+                    connection,
+                    senderToken,
+                );
+                await expectIxOk(connection, ixs, [payer, stagedOutboundSigner]);
+
+                const { amount: balanceAfter } = await splToken.getAccount(connection, senderToken);
+                assert.equal(balanceBefore - balanceAfter, amount);
+            });
+        });
+
         describe("USDC Transfer (Relay)", function () {
             describe("Outbound", function () {
                 it("Cannot Initiate Transfer (Invalid Prepared Order)", async function () {
@@ -1370,7 +1539,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn - expectedRelayerFee);
+                    assert.equal(payerAfter, payerBefore - amountIn - expectedRelayerFee);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -1381,7 +1550,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -1419,7 +1588,7 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn + expectedRelayerFee);
+                    assert.equal(preparedCustodyTokenBalance, amountIn + expectedRelayerFee);
                 });
 
                 it("Initiate Transfer Without Gas Dropoff", async function () {
@@ -1470,7 +1639,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn - expectedRelayerFee);
+                    assert.equal(payerAfter, payerBefore - amountIn - expectedRelayerFee);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -1481,7 +1650,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -1519,7 +1688,7 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn + expectedRelayerFee);
+                    assert.equal(preparedCustodyTokenBalance, amountIn + expectedRelayerFee);
                 });
 
                 it("Initiate Transfer With Gas Dropoff And Target Swap", async function () {
@@ -1586,7 +1755,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn - expectedRelayerFee);
+                    assert.equal(payerAfter, payerBefore - amountIn - expectedRelayerFee);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -1597,7 +1766,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -1635,7 +1804,7 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn + expectedRelayerFee);
+                    assert.equal(preparedCustodyTokenBalance, amountIn + expectedRelayerFee);
                 });
 
                 it("Initiate Transfer Without Gas Dropoff And Target Swap", async function () {
@@ -1702,7 +1871,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn - expectedRelayerFee);
+                    assert.equal(payerAfter, payerBefore - amountIn - expectedRelayerFee);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -1713,7 +1882,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -1751,18 +1920,13 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn + expectedRelayerFee);
+                    assert.equal(preparedCustodyTokenBalance, amountIn + expectedRelayerFee);
                 });
             });
 
             describe("Inbound", function () {
                 it("Cannot Complete Transfer (Invalid Fee Recipient)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -1811,11 +1975,6 @@ describe("Swap Layer", () => {
                     const invalidChain = 69;
 
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -1848,11 +2007,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Swap Message)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -1878,11 +2032,6 @@ describe("Swap Layer", () => {
                 it("Cannot Complete Transfer (Invalid Peer)", async function () {
                     // Create a valid transfer but from the wrong sender.
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -1921,11 +2070,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Output Token)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -1968,11 +2112,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Recipient)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2005,11 +2144,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Redeem Mode)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2038,11 +2172,6 @@ describe("Swap Layer", () => {
 
                 it("Complete Transfer (Payer == Recipient)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2085,11 +2214,9 @@ describe("Swap Layer", () => {
                     const payerLamportAfter = await connection.getBalance(payer.publicKey);
                     const feeRecipientAfter = await getUsdcAtaBalance(connection, feeRecipient);
 
-                    expect(recipientAfter).to.equal(
-                        recipientBefore + message.deposit!.message.amount,
-                    );
-                    expect(payerLamportAfter).to.be.lessThan(payerLamportBefore);
-                    expect(feeRecipientAfter).to.equal(feeRecipientBefore);
+                    assert.equal(recipientAfter, recipientBefore + message.deposit!.message.amount);
+                    assert.isBelow(payerLamportAfter, payerLamportBefore);
+                    assert.equal(feeRecipientAfter, feeRecipientBefore);
                 });
 
                 it("Complete Transfer With Gas Dropoff", async function () {
@@ -2097,11 +2224,6 @@ describe("Swap Layer", () => {
                     const gasAmountDenorm = 690000000;
 
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2152,16 +2274,13 @@ describe("Swap Layer", () => {
                     const payerLamportAfter = await connection.getBalance(payer.publicKey);
                     const feeRecipientAfter = await getUsdcAtaBalance(connection, feeRecipient);
 
-                    expect(recipientAfter - recipientBefore).to.equal(
+                    assert.equal(
+                        recipientAfter - recipientBefore,
                         message.deposit!.message.amount - relayerFee,
                     );
-                    expect(recipientLamportAfter - recipientLamportBefore).to.equal(
-                        Number(gasAmountDenorm),
-                    );
-                    expect(payerLamportAfter).to.be.lessThan(
-                        payerLamportBefore - Number(gasAmountDenorm),
-                    );
-                    expect(feeRecipientAfter).to.equal(feeRecipientBefore + relayerFee);
+                    assert.equal(recipientLamportAfter - recipientLamportBefore, gasAmountDenorm);
+                    assert.isBelow(payerLamportAfter, payerLamportBefore - gasAmountDenorm);
+                    assert.equal(feeRecipientAfter, feeRecipientBefore + relayerFee);
                 });
 
                 it("Complete Transfer Without Gas Dropoff", async function () {
@@ -2169,11 +2288,6 @@ describe("Swap Layer", () => {
                     const gasAmount = 0;
 
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2224,16 +2338,13 @@ describe("Swap Layer", () => {
                     const payerLamportAfter = await connection.getBalance(payer.publicKey);
                     const feeRecipientAfter = await getUsdcAtaBalance(connection, feeRecipient);
 
-                    expect(recipientAfter - recipientBefore).to.equal(
+                    assert.equal(
+                        recipientAfter - recipientBefore,
                         message.deposit!.message.amount - relayerFee,
                     );
-                    expect(recipientLamportAfter - recipientLamportBefore).to.equal(
-                        Number(gasAmount),
-                    );
-                    expect(payerLamportAfter).to.be.lessThan(
-                        payerLamportBefore - Number(gasAmount),
-                    );
-                    expect(feeRecipientAfter).to.equal(feeRecipientBefore + relayerFee);
+                    assert.equal(recipientLamportAfter - recipientLamportBefore, gasAmount);
+                    assert.isBelow(payerLamportAfter, payerLamportBefore - gasAmount);
+                    assert.equal(feeRecipientAfter, feeRecipientBefore + relayerFee);
                 });
             });
         });
@@ -2273,7 +2384,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn);
+                    assert.equal(payerAfter, payerBefore - amountIn);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -2284,7 +2395,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -2318,18 +2429,13 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn);
+                    assert.equal(preparedCustodyTokenBalance, amountIn);
                 });
             });
 
             describe("Inbound", function () {
                 it("Cannot Complete Transfer (Invalid Swap Message)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2355,11 +2461,6 @@ describe("Swap Layer", () => {
                 it("Cannot Complete Transfer (Invalid Peer)", async function () {
                     // Create a valid transfer but from the wrong sender.
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2397,11 +2498,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Peer Doesn't Exist)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2433,11 +2529,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Recipient)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2469,11 +2560,6 @@ describe("Swap Layer", () => {
 
                 it("Cannot Complete Transfer (Invalid Output Token)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2517,11 +2603,6 @@ describe("Swap Layer", () => {
 
                 it("Complete Transfer (Recipient Not Payer)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2564,19 +2645,12 @@ describe("Swap Layer", () => {
                     const recipientAfter = await getUsdcAtaBalance(connection, recipient.publicKey);
                     const beneficiaryAfter = await connection.getBalance(beneficiary.publicKey);
 
-                    expect(recipientAfter).to.equal(
-                        recipientBefore + message.deposit!.message.amount,
-                    );
-                    expect(beneficiaryAfter).to.be.greaterThan(beneficiaryBefore);
+                    assert.equal(recipientAfter, recipientBefore + message.deposit!.message.amount);
+                    assert.isAbove(beneficiaryAfter, beneficiaryBefore);
                 });
 
                 it("Complete Transfer (Recipient Is Payer)", async function () {
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2612,10 +2686,8 @@ describe("Swap Layer", () => {
                     const recipientAfter = await getUsdcAtaBalance(connection, payer.publicKey);
                     const beneficiaryAfter = await connection.getBalance(beneficiary.publicKey);
 
-                    expect(recipientAfter).to.equal(
-                        recipientBefore + message.deposit!.message.amount,
-                    );
-                    expect(beneficiaryAfter).to.be.greaterThan(beneficiaryBefore);
+                    assert.equal(recipientAfter, recipientBefore + message.deposit!.message.amount);
+                    assert.isAbove(beneficiaryAfter, beneficiaryBefore);
                 });
             });
         });
@@ -2656,7 +2728,7 @@ describe("Swap Layer", () => {
 
                     // Balance check.
                     const payerAfter = await getUsdcAtaBalance(connection, payer.publicKey);
-                    expect(payerAfter).to.equal(payerBefore - amountIn);
+                    assert.equal(payerAfter, payerBefore - amountIn);
 
                     // Verify the relevant information in the prepared order.
                     const preparedOrderData = await tokenRouter.fetchPreparedOrder(
@@ -2667,7 +2739,7 @@ describe("Swap Layer", () => {
                         info: { preparedCustodyTokenBump },
                     } = preparedOrderData;
 
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         preparedOrderData,
                         new PreparedOrder(
                             {
@@ -2701,7 +2773,7 @@ describe("Swap Layer", () => {
                         connection,
                         tokenRouter.preparedCustodyTokenAddress(preparedOrder.publicKey),
                     );
-                    expect(preparedCustodyTokenBalance).equals(amountIn);
+                    assert.equal(preparedCustodyTokenBalance, amountIn);
                 });
             });
 
@@ -2712,11 +2784,6 @@ describe("Swap Layer", () => {
                     const payload = Buffer.from("Insert payload here");
 
                     const result = await createAndRedeemCctpFillForTest(
-                        connection,
-                        tokenRouter,
-                        swapLayer,
-                        tokenRouterLkupTable,
-                        payer,
                         testCctpNonce++,
                         foreignChain,
                         foreignTokenRouterAddress,
@@ -2756,11 +2823,11 @@ describe("Swap Layer", () => {
                         connection,
                         stagedInboundTokenAddress,
                     );
-                    expect(balanceAfter).to.equal(message.deposit!.message.amount);
+                    assert.equal(balanceAfter, message.deposit!.message.amount);
 
                     // State check.
                     const stagedInboundData = await swapLayer.fetchStagedInbound(stagedInbound);
-                    hackedExpectDeepEqual(
+                    assert.deepEqual(
                         stagedInboundData,
                         new StagedInbound(
                             {
@@ -2829,180 +2896,175 @@ describe("Swap Layer", () => {
                     // Verify that accounts were closed.
                     {
                         const accInfo = await connection.getAccountInfo(stagedInbound);
-                        expect(accInfo).is.null;
+                        assert.isNull(accInfo);
                     }
                     {
                         const accInfo = await connection.getAccountInfo(custodyToken);
-                        expect(accInfo).is.null;
+                        assert.isNull(accInfo);
                     }
 
                     const { amount: dstTokenBalance } = await splToken.getAccount(
                         connection,
                         dstToken,
                     );
-                    expect(dstTokenBalance).equals(stagedTokenBalance);
+                    assert.equal(dstTokenBalance, stagedTokenBalance);
 
                     const beneficiaryBalance = await connection.getBalance(beneficiary.publicKey);
-                    expect(beneficiaryBalance).equals(
+                    assert.equal(
+                        beneficiaryBalance,
                         expectedLamports + expectedCustodyTokenLamports,
                     );
                 });
             });
         });
     });
-});
 
-async function createAndRedeemCctpFillForTest(
-    connection: Connection,
-    tokenRouter: tokenRouterSdk.TokenRouterProgram,
-    swapLayer: SwapLayerProgram,
-    tokenRouterLkupTable: PublicKey,
-    payer: Keypair,
-    cctpNonce: bigint,
-    foreignChain: number,
-    foreignEndpointAddress: number[],
-    orderSender: number[],
-    wormholeSequence: bigint,
-    redeemerMessage: Buffer | Uint8Array,
-): Promise<null | { vaa: PublicKey; message: LiquidityLayerMessage }> {
-    const encodedMintRecipient = Array.from(tokenRouter.cctpMintRecipientAddress().toBuffer());
-    const sourceCctpDomain = 0;
-    const amount = 6900000000n;
-    const burnSource = Array.from(Buffer.alloc(32, "beefdead", "hex"));
-    const redeemer = swapLayer.custodianAddress();
+    async function createAndRedeemCctpFillForTest(
+        cctpNonce: bigint,
+        foreignChain: number,
+        foreignEndpointAddress: number[],
+        orderSender: number[],
+        wormholeSequence: bigint,
+        redeemerMessage: Buffer | Uint8Array,
+    ): Promise<null | { vaa: PublicKey; message: LiquidityLayerMessage }> {
+        const encodedMintRecipient = Array.from(tokenRouter.cctpMintRecipientAddress().toBuffer());
+        const sourceCctpDomain = 0;
+        const amount = 6900000000n;
+        const burnSource = Array.from(Buffer.alloc(32, "beefdead", "hex"));
+        const redeemer = swapLayer.custodianAddress();
 
-    // Concoct a Circle message.
-    const { destinationCctpDomain, burnMessage, encodedCctpMessage, cctpAttestation } =
-        await craftCctpTokenBurnMessage(
-            tokenRouter,
-            sourceCctpDomain,
-            cctpNonce,
+        // Concoct a Circle message.
+        const { destinationCctpDomain, burnMessage, encodedCctpMessage, cctpAttestation } =
+            await craftCctpTokenBurnMessage(
+                sourceCctpDomain,
+                cctpNonce,
+                encodedMintRecipient,
+                amount,
+                burnSource,
+            );
+
+        const message = new LiquidityLayerMessage({
+            deposit: new LiquidityLayerDeposit({
+                tokenAddress: toUniversalAddress(burnMessage.burnTokenAddress),
+                amount,
+                sourceCctpDomain,
+                destinationCctpDomain,
+                cctpNonce,
+                burnSource: toUniversalAddress(burnSource),
+                mintRecipient: toUniversalAddress(encodedMintRecipient),
+                payload: {
+                    id: 1,
+                    sourceChain: toChain(foreignChain),
+                    orderSender: toUniversalAddress(orderSender),
+                    redeemer: toUniversalAddress(redeemer.toBuffer()),
+                    redeemerMessage: Buffer.from(redeemerMessage),
+                },
+            }),
+        });
+
+        const vaa = await postLiquidityLayerVaa(
+            connection,
+            payer,
+            MOCK_GUARDIANS,
+            foreignEndpointAddress,
+            wormholeSequence++,
+            message,
+            { sourceChain: "Ethereum" },
+        );
+
+        const ix = await tokenRouter.redeemCctpFillIx(
+            {
+                payer: payer.publicKey,
+                vaa,
+            },
+            {
+                encodedCctpMessage,
+                cctpAttestation,
+            },
+        );
+
+        const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+            units: 300_000,
+        });
+
+        const { value: lookupTableAccount } = await connection.getAddressLookupTable(
+            tokenRouterLkupTable,
+        );
+
+        await expectIxOk(connection, [computeIx, ix], [payer], {
+            addressLookupTableAccounts: [lookupTableAccount!],
+        });
+
+        return { vaa, message };
+    }
+
+    async function craftCctpTokenBurnMessage(
+        sourceCctpDomain: number,
+        cctpNonce: bigint,
+        encodedMintRecipient: number[],
+        amount: bigint,
+        burnSource: number[],
+        overrides: { destinationCctpDomain?: number } = {},
+    ) {
+        let { destinationCctpDomain } = overrides;
+
+        const messageTransmitterProgram = tokenRouter.messageTransmitterProgram();
+        const { version, localDomain } =
+            await messageTransmitterProgram.fetchMessageTransmitterConfig(
+                messageTransmitterProgram.messageTransmitterConfigAddress(),
+            );
+        destinationCctpDomain ??= localDomain;
+
+        const tokenMessengerMinterProgram = tokenRouter.tokenMessengerMinterProgram();
+        const { tokenMessenger: sourceTokenMessenger } =
+            await tokenMessengerMinterProgram.fetchRemoteTokenMessenger(
+                tokenMessengerMinterProgram.remoteTokenMessengerAddress(sourceCctpDomain),
+            );
+
+        const burnMessage = new CctpTokenBurnMessage(
+            {
+                version,
+                sourceDomain: sourceCctpDomain,
+                destinationDomain: destinationCctpDomain,
+                nonce: cctpNonce,
+                sender: sourceTokenMessenger,
+                recipient: Array.from(tokenMessengerMinterProgram.ID.toBuffer()), // targetTokenMessenger
+                targetCaller: Array.from(tokenRouter.custodianAddress().toBuffer()), // targetCaller
+            },
+            0,
+            Array.from(tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "Ethereum")), // sourceTokenAddress
             encodedMintRecipient,
             amount,
             burnSource,
         );
 
-    const message = new LiquidityLayerMessage({
-        deposit: new LiquidityLayerDeposit({
-            tokenAddress: toUniversalAddress(burnMessage.burnTokenAddress),
-            amount,
-            sourceCctpDomain,
+        const encodedCctpMessage = burnMessage.encode();
+        const cctpAttestation = new CircleAttester().createAttestation(encodedCctpMessage);
+
+        return {
             destinationCctpDomain,
-            cctpNonce,
-            burnSource: toUniversalAddress(burnSource),
-            mintRecipient: toUniversalAddress(encodedMintRecipient),
-            payload: {
-                id: 1,
-                sourceChain: toChain(foreignChain),
-                orderSender: toUniversalAddress(orderSender),
-                redeemer: toUniversalAddress(redeemer.toBuffer()),
-                redeemerMessage: Buffer.from(redeemerMessage),
-            },
-        }),
-    });
-
-    const vaa = await postLiquidityLayerVaa(
-        connection,
-        payer,
-        MOCK_GUARDIANS,
-        foreignEndpointAddress,
-        wormholeSequence++,
-        message,
-        { sourceChain: "Ethereum" },
-    );
-
-    const ix = await tokenRouter.redeemCctpFillIx(
-        {
-            payer: payer.publicKey,
-            vaa,
-        },
-        {
+            burnMessage,
             encodedCctpMessage,
             cctpAttestation,
-        },
-    );
+        };
+    }
 
-    const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
-        units: 300_000,
-    });
-
-    const { value: lookupTableAccount } = await connection.getAddressLookupTable(
-        tokenRouterLkupTable,
-    );
-
-    await expectIxOk(connection, [computeIx, ix], [payer], {
-        addressLookupTableAccounts: [lookupTableAccount!],
-    });
-
-    return { vaa, message };
-}
-
-async function craftCctpTokenBurnMessage(
-    tokenRouter: tokenRouterSdk.TokenRouterProgram,
-    sourceCctpDomain: number,
-    cctpNonce: bigint,
-    encodedMintRecipient: number[],
-    amount: bigint,
-    burnSource: number[],
-    overrides: { destinationCctpDomain?: number } = {},
-) {
-    const { destinationCctpDomain: inputDestinationCctpDomain } = overrides;
-
-    const messageTransmitterProgram = tokenRouter.messageTransmitterProgram();
-    const { version, localDomain } = await messageTransmitterProgram.fetchMessageTransmitterConfig(
-        messageTransmitterProgram.messageTransmitterConfigAddress(),
-    );
-    const destinationCctpDomain = inputDestinationCctpDomain ?? localDomain;
-
-    const tokenMessengerMinterProgram = tokenRouter.tokenMessengerMinterProgram();
-    const { tokenMessenger: sourceTokenMessenger } =
-        await tokenMessengerMinterProgram.fetchRemoteTokenMessenger(
-            tokenMessengerMinterProgram.remoteTokenMessengerAddress(sourceCctpDomain),
+    async function updateRelayParamsForTest(
+        swapLayer: SwapLayerProgram,
+        foreignChain: ChainId,
+        relayParams: RelayParams,
+        feeUpdater: Keypair,
+    ) {
+        const ix = await swapLayer.updateRelayParamsIx(
+            {
+                feeUpdater: feeUpdater.publicKey,
+            },
+            {
+                chain: foreignChain,
+                relayParams,
+            },
         );
 
-    const burnMessage = new CctpTokenBurnMessage(
-        {
-            version,
-            sourceDomain: sourceCctpDomain,
-            destinationDomain: destinationCctpDomain,
-            nonce: cctpNonce,
-            sender: sourceTokenMessenger,
-            recipient: Array.from(tokenMessengerMinterProgram.ID.toBuffer()), // targetTokenMessenger
-            targetCaller: Array.from(tokenRouter.custodianAddress().toBuffer()), // targetCaller
-        },
-        0,
-        Array.from(tryNativeToUint8Array(ETHEREUM_USDC_ADDRESS, "Ethereum")), // sourceTokenAddress
-        encodedMintRecipient,
-        amount,
-        burnSource,
-    );
-
-    const encodedCctpMessage = burnMessage.encode();
-    const cctpAttestation = new CircleAttester().createAttestation(encodedCctpMessage);
-
-    return {
-        destinationCctpDomain,
-        burnMessage,
-        encodedCctpMessage,
-        cctpAttestation,
-    };
-}
-
-async function updateRelayParamsForTest(
-    swapLayer: SwapLayerProgram,
-    foreignChain: ChainId,
-    relayParams: RelayParams,
-    feeUpdater: Keypair,
-) {
-    const ix = await swapLayer.updateRelayParamsIx(
-        {
-            feeUpdater: feeUpdater.publicKey,
-        },
-        {
-            chain: foreignChain,
-            relayParams,
-        },
-    );
-
-    await expectIxOk(swapLayer.program.provider.connection, [ix], [feeUpdater]);
-}
+        await expectIxOk(swapLayer.program.provider.connection, [ix], [feeUpdater]);
+    }
+});
