@@ -40,7 +40,7 @@ pub struct InitiateSwap<'info> {
         constraint = {
             require_eq!(
                 staged_outbound.info.target_chain,
-                target_peer.chain,
+                target_peer.seeds.chain,
                 SwapLayerError::InvalidTargetChain,
             );
 

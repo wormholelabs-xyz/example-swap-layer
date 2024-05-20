@@ -380,9 +380,14 @@ describe("Swap Layer", () => {
                     await expectIxOk(connection, [await createAddPeerIx()], [payer]);
 
                     const peer = await swapLayer.fetchPeer(foreignChain);
+                    const { seeds } = peer;
                     assert.deepEqual(
                         peer,
-                        new Peer(foreignChain, foreignRecipientAddress, startParams),
+                        new Peer(
+                            { chain: foreignChain, bump: seeds.bump },
+                            foreignRecipientAddress,
+                            startParams,
+                        ),
                     );
                 });
             });
@@ -531,9 +536,14 @@ describe("Swap Layer", () => {
                     await expectIxOk(connection, [await createUpdatePeerIx()], [payer]);
 
                     const peer = await swapLayer.fetchPeer(foreignChain);
+                    const { seeds } = peer;
                     assert.deepEqual(
                         peer,
-                        new Peer(foreignChain, foreignSwapLayerAddress, relayParamsForTest),
+                        new Peer(
+                            { chain: foreignChain, bump: seeds.bump },
+                            foreignSwapLayerAddress,
+                            relayParamsForTest,
+                        ),
                     );
                 });
             });

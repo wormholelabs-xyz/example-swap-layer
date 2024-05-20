@@ -51,7 +51,7 @@ pub struct StageOutbound<'info> {
         constraint = {
             require_eq!(
                 args.target_chain,
-                target_peer.chain,
+                target_peer.seeds.chain,
                 SwapLayerError::InvalidTargetChain,
             );
 
@@ -233,6 +233,7 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
                     transfer_amount,
                 )?;
 
+                let peer_seeds = &ctx.accounts.target_peer.seeds;
                 token::sync_native(CpiContext::new_with_signer(
                     token_program.to_account_info(),
                     token::SyncNative {
@@ -240,8 +241,8 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
                     },
                     &[&[
                         Peer::SEED_PREFIX,
-                        &ctx.accounts.target_peer.chain.to_be_bytes(),
-                        &[ctx.bumps.target_peer.peer],
+                        &peer_seeds.chain.to_be_bytes(),
+                        &[peer_seeds.bump],
                     ]],
                 ))?;
 

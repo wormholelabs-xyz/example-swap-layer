@@ -146,9 +146,9 @@ pub struct RegisteredPeer<'info> {
     #[account(
         seeds = [
             Peer::SEED_PREFIX,
-            &peer.chain.to_be_bytes()
+            &peer.seeds.chain.to_be_bytes()
         ],
-        bump,
+        bump = peer.seeds.bump,
     )]
     peer: Box<Account<'info, Peer>>,
 }
@@ -173,7 +173,7 @@ pub struct ConsumeSwapLayerFill<'info> {
                 .map_err(|_| SwapLayerError::InvalidSwapMessage)?;
 
             require_eq!(
-                associated_peer.chain,
+                associated_peer.seeds.chain,
                 fill.source_chain,
                 SwapLayerError::InvalidPeer,
             );
