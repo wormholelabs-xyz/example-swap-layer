@@ -135,14 +135,14 @@ pub mod swap_layer {
         processor::initiate_transfer_new(ctx)
     }
 
-    pub fn initiate_swap<'a, 'b, 'c, 'info>(
-        ctx: Context<'a, 'b, 'c, 'info, InitiateSwap<'info>>,
+    pub fn initiate_swap_exact_in<'a, 'b, 'c, 'info>(
+        ctx: Context<'a, 'b, 'c, 'info, InitiateSwapExactIn<'info>>,
         instruction_data: Vec<u8>,
     ) -> Result<()>
     where
         'c: 'info,
     {
-        processor::initiate_swap(ctx, instruction_data)
+        processor::initiate_swap_exact_in(ctx, instruction_data)
     }
 
     pub fn complete_swap_direct<'a, 'b, 'c, 'info>(
