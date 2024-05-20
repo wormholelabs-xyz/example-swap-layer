@@ -85,3 +85,11 @@ impl StagedOutbound {
             }))
     }
 }
+
+impl std::ops::Deref for StagedOutbound {
+    type Target = StagedOutboundInfo;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}

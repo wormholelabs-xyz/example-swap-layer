@@ -131,6 +131,10 @@ pub mod swap_layer {
         processor::initiate_transfer(ctx, args)
     }
 
+    pub fn initiate_transfer_new(ctx: Context<InitiateTransferNew>) -> Result<()> {
+        processor::initiate_transfer_new(ctx)
+    }
+
     pub fn initiate_swap<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, InitiateSwap<'info>>,
         instruction_data: Vec<u8>,
