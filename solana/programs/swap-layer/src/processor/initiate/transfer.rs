@@ -48,9 +48,8 @@ pub struct InitiateTransferNew<'info> {
     )]
     staged_custody_token: Account<'info, token::TokenAccount>,
 
-    #[account(
-        address = staged_outbound.usdc_refund_token,
-    )]
+    /// CHECK: This account must equal the usdc refund token encoded in the staged outbound account.
+    #[account(address = staged_outbound.usdc_refund_token)]
     usdc_refund_token: UncheckedAccount<'info>,
 
     /// Peer used to determine whether assets are sent to a valid destination.
