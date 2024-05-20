@@ -6,27 +6,18 @@ import * as wormholeSdk from "@certusone/wormhole-sdk";
 import { BN, Program } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
 import { Connection, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
-import IDL from "../../../target/idl/swap_layer.json";
-import { SwapLayer } from "../../../target/types/swap_layer";
-import {
-    Custodian,
-    Peer,
-    RedeemOption,
-    RelayParams,
-    StagedInbound,
-    StagedInput,
-    StagedOutbound,
-} from "./state";
-import { Chain, ChainId } from "@wormhole-foundation/sdk-base";
 import {
     Uint64,
     uint64ToBN,
     uint64ToBigInt,
 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
+import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
+import { ChainId } from "@wormhole-foundation/sdk-base";
 import { keccak256 } from "@wormhole-foundation/sdk-definitions";
-import { decodeSharedAccountsRouteArgs } from "../jupiterV6";
+import IDL from "../../../target/idl/swap_layer.json";
+import { SwapLayer } from "../../../target/types/swap_layer";
 import { OutputToken, encodeOutputToken } from "./messages";
+import { Custodian, Peer, RedeemOption, RelayParams, StagedInbound, StagedOutbound } from "./state";
 
 export const PROGRAM_IDS = ["SwapLayer1111111111111111111111111111111111"] as const;
 
@@ -441,18 +432,16 @@ export class SwapLayerProgram {
     async stageOutboundIx(
         accounts: {
             payer: PublicKey;
-            senderToken: PublicKey;
             stagedOutbound: PublicKey;
             sender?: PublicKey | null;
+            senderToken?: PublicKey | null;
             programTransferAuthority?: PublicKey | null;
             srcMint?: PublicKey;
             peer?: PublicKey;
         },
         args: {
-            useTransferAuthority: boolean;
-            stagedInput:
-                | { usdc: { amount: Uint64 } }
-                | { swapExactIn: { instructionData: Uint8Array | Buffer } };
+            transferType: "native" | "programTransferAuthority" | "sender";
+            amountIn: Uint64;
             targetChain: ChainId;
             recipient: Array<number>;
             redeemOption:
@@ -462,37 +451,11 @@ export class SwapLayerProgram {
             outputToken: OutputToken | null;
         },
     ): Promise<[approveIx: TransactionInstruction | null, stageIx: TransactionInstruction]> {
-        const { payer, programTransferAuthority, senderToken, stagedOutbound, peer } = accounts;
-        const {
-            stagedInput: inputStagedInput,
-            redeemOption: inputRedeemOption,
-            outputToken,
-        } = args;
+        const { payer, stagedOutbound, peer } = accounts;
+        const { transferType, amountIn, redeemOption: inputRedeemOption, outputToken } = args;
 
-        let { sender, srcMint } = accounts;
-        srcMint ??= this.mint;
-
-        let { useTransferAuthority } = args;
-        useTransferAuthority ??= true;
-
-        const [stagedInput, amountIn] = ((): [StagedInput, bigint] => {
-            if ("usdc" in inputStagedInput) {
-                const { amount } = inputStagedInput.usdc;
-                return [{ usdc: { amount: uint64ToBN(amount) } }, uint64ToBigInt(amount)];
-            } else if ("swapExactIn" in inputStagedInput) {
-                const { instructionData } = inputStagedInput.swapExactIn;
-                return [
-                    {
-                        swapExactIn: {
-                            instructionData: Buffer.from(instructionData),
-                        },
-                    },
-                    decodeSharedAccountsRouteArgs(instructionData).inAmount,
-                ];
-            } else {
-                throw new Error("invalid staged input");
-            }
-        })();
+        let { sender, senderToken, programTransferAuthority, srcMint } = accounts;
+        srcMint ??= transferType === "native" ? splToken.NATIVE_MINT : this.mint;
 
         const redeemOption = ((): RedeemOption | null => {
             if (inputRedeemOption === null) {
@@ -517,12 +480,40 @@ export class SwapLayerProgram {
             outputToken === null ? null : Buffer.from(encodeOutputToken(outputToken));
         const ixBuilder = this.program.methods.stageOutbound({
             ...args,
-            stagedInput,
+            amountIn: uint64ToBN(amountIn),
             redeemOption,
             encodedOutputToken,
         });
 
-        sender ??= useTransferAuthority ? null : payer;
+        if (transferType === "native") {
+            if (sender === undefined) {
+                sender = payer;
+            }
+            if (senderToken === undefined) {
+                senderToken = null;
+            }
+            if (programTransferAuthority === undefined) {
+                programTransferAuthority = null;
+            }
+        } else if (transferType === "programTransferAuthority") {
+            if (sender === undefined) {
+                sender = null;
+            }
+            // This checks if undefined or null.
+            if (senderToken === undefined) {
+                throw new Error("senderToken must be provided");
+            }
+        } else if (transferType === "sender") {
+            if (sender === undefined) {
+                sender = payer;
+            }
+            senderToken ??= splToken.getAssociatedTokenAddressSync(srcMint, sender);
+            if (programTransferAuthority === undefined) {
+                programTransferAuthority = null;
+            }
+        } else {
+            throw new Error("invalid transfer type");
+        }
 
         const definedAccounts = {
             payer,
@@ -540,27 +531,33 @@ export class SwapLayerProgram {
             systemProgram: SystemProgram.programId,
         };
 
+        // TODO: This approval amount will not be correct if RedeemOption is Relay. Fix this.
         let approveIx: TransactionInstruction | null = null;
         if (programTransferAuthority === undefined) {
-            if (useTransferAuthority) {
+            if (transferType === "programTransferAuthority") {
                 const hashedArgs = await ixBuilder
                     .accounts(definedAccounts)
                     .instruction()
                     .then((ix) => keccak256(ix.data.subarray(8)));
 
                 // Replace the program transfer authority in the defined accounts.
-                [definedAccounts.programTransferAuthority] = PublicKey.findProgramAddressSync(
+                [programTransferAuthority] = PublicKey.findProgramAddressSync(
                     [Buffer.from("transfer-authority"), hashedArgs],
                     this.ID,
                 );
 
-                const { owner } = await splToken.getAccount(this.connection(), senderToken);
+                const owner = await splToken
+                    .getAccount(this.connection(), senderToken)
+                    .then((token) => token.owner)
+                    .catch((_) => PublicKey.default);
                 approveIx = splToken.createApproveInstruction(
                     senderToken,
-                    definedAccounts.programTransferAuthority,
+                    programTransferAuthority,
                     owner,
-                    amountIn,
+                    uint64ToBigInt(amountIn),
                 );
+
+                definedAccounts.programTransferAuthority = programTransferAuthority;
             }
         }
 

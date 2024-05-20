@@ -41,7 +41,8 @@ pub enum SwapLayerError {
 
     // Staged outbound
     EitherSenderOrProgramTransferAuthority = 0x240,
-    InvalidStagedInput = 0x250,
+    SenderTokenRequired = 0x242,
+    SenderRequired = 0x244,
     RelayingFeeExceedsMinAmountOut = 0x260,
     ZeroMinAmountOut = 0x262,
 

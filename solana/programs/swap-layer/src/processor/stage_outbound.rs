@@ -1,11 +1,10 @@
 use crate::{
     composite::*,
     error::SwapLayerError,
-    state::{RedeemOption, StagedInput, StagedOutbound, StagedOutboundInfo, StagedRedeem},
-    utils::{self, jupiter_v6::cpi::SharedAccountsRouteArgs, AnchorInstructionData},
-    TRANSFER_AUTHORITY_SEED_PREFIX,
+    state::{Peer, RedeemOption, StagedOutbound, StagedOutboundInfo, StagedRedeem},
+    utils, TRANSFER_AUTHORITY_SEED_PREFIX,
 };
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, system_program};
 use anchor_spl::token;
 use common::wormhole_io::Readable;
 use solana_program::keccak;
@@ -17,6 +16,9 @@ pub struct StageOutbound<'info> {
     #[account(mut)]
     payer: Signer<'info>,
 
+    /// This signer is mutable in case the integrator wants to separate the payer of accounts from
+    /// the sender, who may be sending lamports ([StageOutboundArgs::is_native] is true).
+    #[account(mut)]
     sender: Option<Signer<'info>>,
 
     #[account(
@@ -25,14 +27,19 @@ pub struct StageOutbound<'info> {
             &keccak::hash(&args.try_to_vec()?).0,
         ],
         bump,
+        constraint = sender_token.is_some() @ SwapLayerError::SenderTokenRequired,
     )]
     program_transfer_authority: Option<UncheckedAccount<'info>>,
 
+    /// If provided, this token account's mint must be equal to the source mint.
+    ///
+    /// NOTE: This account may not be necessary because the sender may send lamports directly
+    /// ([StageOutboundArgs::is_native] is true).
     #[account(
         mut,
         token::mint = src_mint,
     )]
-    sender_token: Account<'info, token::TokenAccount>,
+    sender_token: Option<Account<'info, token::TokenAccount>>,
 
     /// Peer used to determine whether assets are sent to a valid destination. The registered peer
     /// will also act as the authority over the staged custody token account.
@@ -58,11 +65,7 @@ pub struct StageOutbound<'info> {
     #[account(
         init,
         payer = payer,
-        space = StagedOutbound::try_compute_size(
-            &args.staged_input,
-            &args.redeem_option,
-            &args.encoded_output_token
-        )?,
+        space = StagedOutbound::try_compute_size(&args.redeem_option, &args.encoded_output_token)?,
         constraint = {
             // Cannot send to zero address.
             require!(args.recipient != [0; 32], SwapLayerError::InvalidRecipient);
@@ -88,37 +91,16 @@ pub struct StageOutbound<'info> {
     staged_custody_token: Account<'info, token::TokenAccount>,
 
     /// Mint can either be USDC or whichever mint is used to swap into USDC.
-    #[account(
-        constraint = {
-            match &args.staged_input {
-                StagedInput::Usdc { .. } => {
-                    require_keys_eq!(
-                        src_mint.key(),
-                        common::USDC_MINT,
-                        SwapLayerError::InvalidSourceMint,
-                    );
-                }
-                StagedInput::SwapExactIn { .. } => {
-                    require!(
-                        src_mint.key() != common::USDC_MINT,
-                        SwapLayerError::InvalidSourceMint,
-                    );
-                }
-            }
-
-            true
-        }
-    )]
     src_mint: Account<'info, token::Mint>,
 
     token_program: Program<'info, token::Token>,
     system_program: Program<'info, System>,
 }
 
-/// Arguments for [prepare_market_order].
+/// Arguments for [stage_outbound].
 #[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
 pub struct StageOutboundArgs {
-    pub staged_input: StagedInput,
+    pub amount_in: u64,
 
     /// The Wormhole chain ID of the network to transfer tokens to.
     pub target_chain: u16,
@@ -139,7 +121,7 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
         .map(|bump| (keccak::hash(&args.try_to_vec().unwrap()).0, bump));
 
     let StageOutboundArgs {
-        staged_input,
+        amount_in,
         target_chain,
         recipient,
         redeem_option,
@@ -148,7 +130,7 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
 
     // We need to determine the relayer fee. This fee will either be paid for right now if
     // StagedInput::Usdc or will be paid for later if a swap is required to get USDC.
-    let staged_redeem = match redeem_option {
+    let (transfer_amount, staged_redeem) = match redeem_option {
         Some(redeem_option) => match redeem_option {
             RedeemOption::Relay {
                 gas_dropoff,
@@ -172,98 +154,101 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
                     SwapLayerError::ExceedsMaxRelayingFee
                 );
 
-                StagedRedeem::Relay {
-                    gas_dropoff,
-                    relaying_fee,
-                }
-            }
-            RedeemOption::Payload(buf) => StagedRedeem::Payload(buf),
-        },
-        None => StagedRedeem::Direct,
-    };
-
-    // Transfer amount depends on whether there will be tokens swapped into USDC or if USDC is
-    // directly being transferred.
-    let transfer_amount = match &staged_input {
-        StagedInput::Usdc { amount } => match &staged_redeem {
-            StagedRedeem::Relay {
-                gas_dropoff: _,
-                relaying_fee,
-            } => relaying_fee
-                .checked_add(*amount)
-                .ok_or(SwapLayerError::U64Overflow)?,
-            _ => *amount,
-        },
-        StagedInput::SwapExactIn { instruction_data } => {
-            // Deserialize shared accounts route for in amount.
-            let swap_args = SharedAccountsRouteArgs::deserialize_checked(&instruction_data[..])?;
-            let min_amount_out = utils::jupiter_v6::compute_min_amount_out(&swap_args);
-
-            match &staged_redeem {
-                StagedRedeem::Relay {
-                    gas_dropoff: _,
-                    relaying_fee,
-                } => {
-                    // We need to make sure that the min amount out will pay for the relaying fee.
-                    require!(
-                        min_amount_out > *relaying_fee,
-                        SwapLayerError::RelayingFeeExceedsMinAmountOut
-                    )
-                }
-                _ => {
-                    // If a swap succeeds and results in zero destination tokens, there is nothing
-                    // to transfer. So we need the min amount out to be some positive value.
-                    require!(min_amount_out > 0, SwapLayerError::ZeroMinAmountOut)
-                }
-            }
-
-            swap_args.in_amount
-        }
-    };
-
-    let sender = match (
-        &ctx.accounts.sender,
-        &ctx.accounts.program_transfer_authority,
-    ) {
-        (Some(sender), None) => {
-            token::transfer(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    token::Transfer {
-                        from: ctx.accounts.sender_token.to_account_info(),
-                        to: ctx.accounts.staged_custody_token.to_account_info(),
-                        authority: sender.to_account_info(),
+                (
+                    if ctx.accounts.src_mint.key() == common::USDC_MINT {
+                        relaying_fee
+                            .checked_add(amount_in)
+                            .ok_or(SwapLayerError::U64Overflow)?
+                    } else {
+                        amount_in
                     },
-                ),
-                transfer_amount,
-            )?;
+                    StagedRedeem::Relay {
+                        gas_dropoff,
+                        relaying_fee,
+                    },
+                )
+            }
+            RedeemOption::Payload(buf) => (amount_in, StagedRedeem::Payload(buf)),
+        },
+        None => (amount_in, StagedRedeem::Direct),
+    };
 
-            sender.key()
-        }
-        (None, Some(program_transfer_authority)) => {
-            let sender_token = &ctx.accounts.sender_token;
-            let (hashed_args, authority_bump) = last_transfer_authority_signer_seeds.unwrap();
+    let token_program = &ctx.accounts.token_program;
+    let custody_token = &ctx.accounts.staged_custody_token;
 
-            token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    token::Transfer {
-                        from: sender_token.to_account_info(),
-                        to: ctx.accounts.staged_custody_token.to_account_info(),
-                        authority: program_transfer_authority.to_account_info(),
+    let sender = match &ctx.accounts.sender_token {
+        Some(sender_token) => match (
+            &ctx.accounts.sender,
+            &ctx.accounts.program_transfer_authority,
+        ) {
+            (Some(sender), None) => {
+                token::transfer(
+                    CpiContext::new(
+                        token_program.to_account_info(),
+                        token::Transfer {
+                            from: sender_token.to_account_info(),
+                            to: custody_token.to_account_info(),
+                            authority: sender.to_account_info(),
+                        },
+                    ),
+                    transfer_amount,
+                )?;
+
+                sender.key()
+            }
+            (None, Some(program_transfer_authority)) => {
+                let (hashed_args, authority_bump) = last_transfer_authority_signer_seeds.unwrap();
+
+                token::transfer(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        token::Transfer {
+                            from: sender_token.to_account_info(),
+                            to: custody_token.to_account_info(),
+                            authority: program_transfer_authority.to_account_info(),
+                        },
+                        &[&[
+                            crate::TRANSFER_AUTHORITY_SEED_PREFIX,
+                            &hashed_args,
+                            &[authority_bump],
+                        ]],
+                    ),
+                    transfer_amount,
+                )?;
+
+                sender_token.owner
+            }
+            _ => return err!(SwapLayerError::EitherSenderOrProgramTransferAuthority),
+        },
+        None => match &ctx.accounts.sender {
+            Some(sender) => {
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: sender.to_account_info(),
+                            to: custody_token.to_account_info(),
+                        },
+                    ),
+                    transfer_amount,
+                )?;
+
+                token::sync_native(CpiContext::new_with_signer(
+                    token_program.to_account_info(),
+                    token::SyncNative {
+                        account: custody_token.to_account_info(),
                     },
                     &[&[
-                        crate::TRANSFER_AUTHORITY_SEED_PREFIX,
-                        &hashed_args,
-                        &[authority_bump],
+                        Peer::SEED_PREFIX,
+                        &ctx.accounts.target_peer.chain.to_be_bytes(),
+                        &[ctx.bumps.target_peer.peer],
                     ]],
-                ),
-                transfer_amount,
-            )?;
+                ))?;
 
-            sender_token.owner
-        }
-        _ => return err!(SwapLayerError::EitherSenderOrProgramTransferAuthority),
+                sender.key()
+            }
+            None => return err!(SwapLayerError::SenderRequired),
+        },
     };
 
     ctx.accounts.staged_outbound.set_inner(StagedOutbound {
@@ -275,7 +260,6 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
             target_chain,
             recipient,
         },
-        staged_input,
         staged_redeem,
         encoded_output_token,
     });

@@ -1,8 +1,4 @@
-use crate::{
-    composite::*,
-    error::SwapLayerError,
-    state::{StagedInput, StagedOutbound},
-};
+use crate::{composite::*, error::SwapLayerError, state::StagedOutbound};
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token, token};
 
@@ -44,14 +40,14 @@ pub struct InitiateSwap<'info> {
         constraint = {
             require_eq!(
                 staged_outbound.info.target_chain,
-                peer.chain,
+                target_peer.chain,
                 SwapLayerError::InvalidTargetChain,
             );
 
             true
         }
     )]
-    peer: RegisteredPeer<'info>,
+    target_peer: RegisteredPeer<'info>,
 
     /// CHECK: Seeds must be \["swap-authority", staged_outbound.key()\].
     #[account(
@@ -84,6 +80,7 @@ pub struct InitiateSwap<'info> {
     dst_swap_token: Box<Account<'info, token::TokenAccount>>,
 
     /// This account must be verified as the source mint for the swap.
+    #[account(address = staged_custody_token.mint)]
     src_mint: Box<Account<'info, token::Mint>>,
 
     /// This account must be verified as the destination mint for the swap.
@@ -116,18 +113,12 @@ pub struct InitiateSwap<'info> {
 
 pub fn initiate_swap<'a, 'b, 'c, 'info>(
     ctx: Context<'a, 'b, 'c, 'info, InitiateSwap<'info>>,
+    instruction_data: Vec<u8>,
 ) -> Result<()>
 where
     'c: 'info,
 {
-    let staged_input = std::mem::take(&mut ctx.accounts.staged_outbound.staged_input);
-
-    match staged_input {
-        StagedInput::SwapExactIn { instruction_data } => {
-            handle_initiate_swap_jup_v6(ctx, instruction_data)
-        }
-        _ => err!(SwapLayerError::InvalidStagedInput),
-    }
+    handle_initiate_swap_jup_v6(ctx, instruction_data)
 }
 
 pub fn handle_initiate_swap_jup_v6<'a, 'b, 'c, 'info>(

@@ -3,20 +3,6 @@ use anchor_lang::prelude::*;
 use common::wormhole_io::Readable;
 use swap_layer_messages::types::OutputToken;
 
-#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize, PartialEq, Eq)]
-pub enum StagedInput {
-    Usdc { amount: u64 },
-    SwapExactIn { instruction_data: Vec<u8> },
-}
-
-impl Default for StagedInput {
-    fn default() -> Self {
-        Self::Usdc {
-            amount: Default::default(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
 pub enum RedeemOption {
     Relay {
@@ -60,7 +46,6 @@ pub struct StagedOutboundInfo {
 #[derive(Debug)]
 pub struct StagedOutbound {
     pub info: StagedOutboundInfo,
-    pub staged_input: StagedInput,
     pub staged_redeem: StagedRedeem,
     pub encoded_output_token: Option<Vec<u8>>,
 }
@@ -68,23 +53,15 @@ pub struct StagedOutbound {
 impl StagedOutbound {
     const BASE_SIZE: usize = 8 // DISCRIMINATOR
         + StagedOutboundInfo::INIT_SPACE
-        + 1 // StagedType discriminant
         + 1 // StagedRedeem discrimant
         + 1 // encoded_output_token === None
         ;
 
     pub fn try_compute_size(
-        staged_input: &StagedInput,
         redeem_option: &Option<RedeemOption>,
         encoded_output_token: &Option<Vec<u8>>,
     ) -> Result<usize> {
         Ok(Self::BASE_SIZE
-            .saturating_add(match staged_input {
-                StagedInput::Usdc { .. } => 8,
-                StagedInput::SwapExactIn { instruction_data } => {
-                    instruction_data.len().saturating_add(4)
-                }
-            })
             .saturating_add(match redeem_option {
                 Some(redeem) => match redeem {
                     RedeemOption::Relay { .. } => 12, // gas_dropoff + relaying_fee

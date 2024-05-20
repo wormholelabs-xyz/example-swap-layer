@@ -133,20 +133,21 @@ pub mod swap_layer {
 
     pub fn initiate_swap<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, InitiateSwap<'info>>,
+        instruction_data: Vec<u8>,
     ) -> Result<()>
     where
         'c: 'info,
     {
-        processor::initiate_swap(ctx)
+        processor::initiate_swap(ctx, instruction_data)
     }
 
     pub fn complete_swap_direct<'a, 'b, 'c, 'info>(
         ctx: Context<'a, 'b, 'c, 'info, CompleteSwapDirect<'info>>,
-        ix_data: Vec<u8>,
+        instruction_data: Vec<u8>,
     ) -> Result<()>
     where
         'c: 'info,
     {
-        processor::complete_swap_direct(ctx, ix_data)
+        processor::complete_swap_direct(ctx, instruction_data)
     }
 }
