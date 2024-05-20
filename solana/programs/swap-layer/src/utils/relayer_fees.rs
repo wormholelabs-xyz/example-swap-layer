@@ -272,12 +272,12 @@ mod test {
 
     #[test]
     fn test_calculate_gas_dropoff_cost() {
-        let denorm_gas_dropoff = 500_000_000; // .5 SOL
+        let gas_dropoff = 500_000; // .5 SOL normalized
         let gas_dropoff_margin = 500_000; // 50%
         let native_token_price = 200_000_000; // 200 USDC
 
         let dropoff_cost =
-            calculate_gas_dropoff_cost(denorm_gas_dropoff, gas_dropoff_margin, native_token_price);
+            calculate_gas_dropoff_cost(gas_dropoff, gas_dropoff_margin, native_token_price);
 
         assert_eq!(dropoff_cost, Some(150000000));
     }
@@ -285,10 +285,10 @@ mod test {
     #[test]
     fn test_calculate_relayer_fee_no_swap() {
         let relay_params = test_relay_params();
-        let denorm_gas_dropoff = 50_000_000;
+        let gas_dropoff = 50_000;
         let output_token = &OutputToken::Usdc;
 
-        let relayer_fee = calculate_relayer_fee(&relay_params, denorm_gas_dropoff, output_token);
+        let relayer_fee = calculate_relayer_fee(&relay_params, gas_dropoff, output_token);
 
         assert_eq!(relayer_fee.unwrap(), 16775000);
     }
@@ -296,7 +296,7 @@ mod test {
     #[test]
     fn test_calculate_relayer_fee_with_gas_uniswap_swap() {
         let relay_params = test_relay_params();
-        let denorm_gas_dropoff = 50_000_000;
+        let gas_dropoff = 50_000;
         let swap_type = SwapType::UniswapV3(UniswapSwapParameters {
             first_leg_fee: Uint24::from(500),
             path: vec![
@@ -321,7 +321,7 @@ mod test {
             swap_type: swap_type.clone(),
         });
 
-        let relayer_fee = calculate_relayer_fee(&relay_params, denorm_gas_dropoff, &output_token);
+        let relayer_fee = calculate_relayer_fee(&relay_params, gas_dropoff, &output_token);
 
         assert_eq!(relayer_fee.unwrap(), 18025000);
     }
@@ -329,7 +329,7 @@ mod test {
     #[test]
     fn test_calculate_relayer_fee_with_gas_trader_joe_swap() {
         let relay_params = test_relay_params();
-        let denorm_gas_dropoff = 50_000_000;
+        let gas_dropoff = 50_000;
         let swap_type = &SwapType::TraderJoe(TraderJoeSwapParameters {
             first_pool_id: TraderJoePoolId {
                 version: 0,
@@ -349,7 +349,7 @@ mod test {
             swap_type: swap_type.clone(),
         });
 
-        let relayer_fee = calculate_relayer_fee(&relay_params, denorm_gas_dropoff, &output_token);
+        let relayer_fee = calculate_relayer_fee(&relay_params, gas_dropoff, &output_token);
 
         assert_eq!(relayer_fee.unwrap(), 17525000);
     }
