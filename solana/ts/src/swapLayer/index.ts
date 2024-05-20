@@ -216,13 +216,6 @@ export class SwapLayerProgram {
         return StagedInbound.address(this.ID, preparedFill);
     }
 
-    stagedInboundTokenAddress(StagedInbound: PublicKey): PublicKey {
-        return PublicKey.findProgramAddressSync(
-            [Buffer.from("staged-custody"), StagedInbound.toBuffer()],
-            this.ID,
-        )[0];
-    }
-
     async fetchStagedInbound(addr: PublicKey): Promise<StagedInbound> {
         return this.program.account.stagedInbound.fetch(addr);
     }
@@ -230,6 +223,13 @@ export class SwapLayerProgram {
     async fetchStagedOutbound(addr: PublicKey): Promise<StagedOutbound> {
         // @ts-ignore: This works.
         return this.program.account.stagedOutbound.fetch(addr);
+    }
+
+    stagedCustodyTokenAddress(stagedAccount: PublicKey): PublicKey {
+        return PublicKey.findProgramAddressSync(
+            [Buffer.from("staged-custody"), stagedAccount.toBuffer()],
+            this.ID,
+        )[0];
     }
 
     async fetchCustodian(input?: { address: PublicKey }): Promise<Custodian> {
@@ -526,10 +526,7 @@ export class SwapLayerProgram {
             senderToken,
             targetPeer: this.registeredPeerComposite({ peer, chain: args.targetChain }),
             stagedOutbound,
-            stagedCustodyToken: PublicKey.findProgramAddressSync(
-                [Buffer.from("staged-custody"), stagedOutbound.toBuffer()],
-                this.ID,
-            )[0],
+            stagedCustodyToken: this.stagedCustodyTokenAddress(stagedOutbound),
             usdcRefundToken,
             srcMint,
             tokenProgram: splToken.TOKEN_PROGRAM_ID,
@@ -705,7 +702,7 @@ export class SwapLayerProgram {
         beneficiary ??= payer;
 
         const stagedInbound = this.stagedInboundAddress(preparedFill);
-        const stagedCustodyToken = this.stagedInboundTokenAddress(stagedInbound);
+        const stagedCustodyToken = this.stagedCustodyTokenAddress(stagedInbound);
 
         return this.program.methods
             .completeTransferPayload()
@@ -743,7 +740,7 @@ export class SwapLayerProgram {
                 beneficiary,
                 stagedInbound,
                 dstToken,
-                stagedCustodyToken: this.stagedInboundTokenAddress(stagedInbound),
+                stagedCustodyToken: this.stagedCustodyTokenAddress(stagedInbound),
                 tokenProgram: splToken.TOKEN_PROGRAM_ID,
             })
             .instruction();

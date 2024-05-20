@@ -58,7 +58,7 @@ pub struct InitiateTransferNew<'info> {
             require_eq!(
                 staged_outbound.info.target_chain,
                 target_peer.seeds.chain,
-                SwapLayerError::InvalidTargetChain,
+                SwapLayerError::InvalidPeer,
             );
 
             true
@@ -69,18 +69,19 @@ pub struct InitiateTransferNew<'info> {
     /// CHECK: Token router config.
     token_router_custodian: UncheckedAccount<'info>,
 
+    /// CHECK: Mutable, seeds must be \["prepared-order", staged_outbound.key()\].
     #[account(
         mut,
-        constraint = {
-            require!(*prepared_order.key != payer.key(), SwapLayerError::InvalidPreparedOrder);
-
-            true
-        }
+        seeds = [
+            crate::PREPARED_ORDER_SEED_PREFIX,
+            staged_outbound.key().as_ref(),
+        ],
+        bump,
     )]
-    prepared_order: Signer<'info>,
+    prepared_order: UncheckedAccount<'info>,
 
+    /// CHECK: Mutable, seeds must be \["prepared-custody", prepared_order.key()\].
     #[account(mut)]
-    /// CHECK:
     prepared_custody_token: UncheckedAccount<'info>,
 
     usdc: Usdc<'info>,
@@ -158,7 +159,7 @@ pub fn initiate_transfer_new(ctx: Context<InitiateTransferNew>) -> Result<()> {
                     custodian: ctx.accounts.token_router_custodian.to_account_info(),
                 },
                 program_transfer_authority: Default::default(),
-                sender: ctx.accounts.custodian.to_account_info().into(),
+                sender: custodian.to_account_info().into(),
                 prepared_order: ctx.accounts.prepared_order.to_account_info(),
                 sender_token: custody_token.to_account_info(),
                 refund_token: ctx.accounts.usdc_refund_token.to_account_info(),
@@ -166,7 +167,7 @@ pub fn initiate_transfer_new(ctx: Context<InitiateTransferNew>) -> Result<()> {
                 usdc: token_router::cpi::accounts::Usdc {
                     mint: ctx.accounts.usdc.to_account_info(),
                 },
-                token_program: ctx.accounts.token_program.to_account_info(),
+                token_program: token_program.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
             &[Custodian::SIGNER_SEEDS],

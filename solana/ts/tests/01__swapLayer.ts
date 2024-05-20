@@ -40,8 +40,10 @@ import {
     Custodian,
     OutputToken,
     Peer,
+    RedeemOption,
     RelayParams,
     StagedInbound,
+    StagedOutbound,
     SwapLayerProgram,
     U32_MAX,
     UpdateRelayParametersArgs,
@@ -1166,14 +1168,15 @@ describe("Swap Layer", () => {
                 );
 
                 const amountIn = 690000n;
+                const usdcRefundToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.usdcMint,
+                    payer.publicKey,
+                );
                 const [approveIx, ix] = await swapLayer.stageOutboundIx(
                     {
                         payer: payer.publicKey,
                         stagedOutbound,
-                        usdcRefundToken: splToken.getAssociatedTokenAddressSync(
-                            swapLayer.usdcMint,
-                            payer.publicKey,
-                        ),
+                        usdcRefundToken,
                         sender,
                     },
                     {
@@ -1194,9 +1197,22 @@ describe("Swap Layer", () => {
                 assert.equal(balanceBefore - balanceAfter, amountIn);
 
                 const stagedOutboundData = await swapLayer.fetchStagedOutbound(stagedOutbound);
-
-                // TODO: check account data
-                console.log(stagedOutboundData);
+                const { info } = stagedOutboundData;
+                assert.deepEqual(
+                    stagedOutboundData,
+                    new StagedOutbound(
+                        {
+                            custodyTokenBump: info.custodyTokenBump,
+                            preparedBy: payer.publicKey,
+                            sender,
+                            targetChain: foreignChain,
+                            recipient: foreignRecipientAddress,
+                            usdcRefundToken,
+                        },
+                        { direct: {} },
+                        Buffer.alloc(1),
+                    ),
+                );
             });
 
             it("Stage Outbound -- USDC In, Direct USDC Out", async function () {
@@ -1255,6 +1271,80 @@ describe("Swap Layer", () => {
                     [payer, stagedOutboundSigner],
                     `account Address { address: ${stagedOutboundSigner.publicKey.toString()}, base: None } already in use`,
                 );
+            });
+
+            it("Cannot Stage Outbound -- Invalid Recipient", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amountIn = 690000n;
+                const gasDropoff = 42069;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.usdcMint,
+                    payer.publicKey,
+                );
+                const [, ix] = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                        usdcRefundToken: senderToken,
+                    },
+                    {
+                        transferType: "sender",
+                        amountIn,
+                        targetChain: foreignChain,
+                        recipient: new Array(32).fill(0),
+                        redeemOption: { relay: { gasDropoff, maxRelayerFee: 1000000000n } },
+                        outputToken: null,
+                    },
+                );
+
+                await expectIxErr(
+                    connection,
+                    [ix],
+                    [payer, stagedOutboundSigner],
+                    "Error Code: InvalidRecipient",
+                );
+            });
+
+            it("Cannot Stage Outbound -- Exceeds Max Relayer Fee", async function () {
+                const stagedOutboundSigner = Keypair.generate();
+                const stagedOutbound = stagedOutboundSigner.publicKey;
+
+                const amountIn = 690000n;
+                const gasDropoff = 42069;
+                const senderToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.usdcMint,
+                    payer.publicKey,
+                );
+                const [, ix] = await swapLayer.stageOutboundIx(
+                    {
+                        payer: payer.publicKey,
+                        senderToken,
+                        stagedOutbound,
+                        usdcRefundToken: senderToken,
+                    },
+                    {
+                        transferType: "sender",
+                        amountIn,
+                        targetChain: foreignChain,
+                        recipient: foreignRecipientAddress,
+                        redeemOption: { relay: { gasDropoff, maxRelayerFee: 1n } },
+                        outputToken: null,
+                    },
+                );
+
+                await expectIxErr(
+                    connection,
+                    [ix],
+                    [payer, stagedOutboundSigner],
+                    "Error Code: ExceedsMaxRelayingFee",
+                );
+            });
+
+            it.skip("Cannot Stage Outbound -- Relaying Disabled", async function () {
+                // TODO
             });
 
             it("Cannot Stage Outbound -- USDC In with Program Transfer Authority (Sender Token Required)", async function () {
@@ -1447,131 +1537,57 @@ describe("Swap Layer", () => {
 
         describe("USDC Transfer (Relay)", function () {
             describe("Outbound", function () {
-                it("Cannot Initiate Transfer (Invalid Prepared Order)", async function () {
-                    const amountIn = 6900000000n;
-                    const gasDropoff = 100000;
-                    const maxRelayerFee = 9999999999999;
-
-                    // Pass the payer key as the prepared order.
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
-                            payer: payer.publicKey,
-                            preparedOrder: payer.publicKey,
-                        },
-                        {
-                            amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain,
-                            relayOptions: {
-                                gasDropoff: gasDropoff,
-                                maxRelayerFee: new BN(maxRelayerFee),
-                            },
-                            recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
-                            payload: null,
-                        },
+                it("Cannot Initiate Transfer (Non-Existent Peer)", async function () {
+                    const senderToken = splToken.getAssociatedTokenAddressSync(
+                        swapLayer.usdcMint,
+                        payer.publicKey,
                     );
 
-                    await expectIxErr(connection, [ix], [payer], "InvalidPreparedOrder");
-                });
+                    const { stagedOutbound, stagedCustodyToken } = await stageOutboundForTest({
+                        payer: payer.publicKey,
+                        senderToken,
+                    });
 
-                it("Cannot Initiate Transfer (Invalid Peer)", async function () {
-                    const amountIn = 6900000000n;
-                    const gasDropoff = 100000;
-                    const maxRelayerFee = 9999999999999;
-                    const invalidChain = 69;
+                    const invalidChain = toChainId("Holesky");
 
-                    const preparedOrder = Keypair.generate();
+                    const preparedOrder = PublicKey.findProgramAddressSync(
+                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
+                        swapLayer.ID,
+                    )[0];
 
-                    // Pass the payer key as the prepared order.
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
+                    const ix = await swapLayer.program.methods
+                        .initiateTransferNew()
+                        .accounts({
                             payer: payer.publicKey,
-                            preparedOrder: preparedOrder.publicKey,
-                        },
-                        {
-                            amountIn: new BN(amountIn.toString()),
-                            targetChain: invalidChain,
-                            relayOptions: {
-                                gasDropoff: gasDropoff,
-                                maxRelayerFee: new BN(maxRelayerFee),
-                            },
-                            recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
-                            payload: null,
-                        },
-                    );
+                            custodian: swapLayer.checkedCustodianComposite(),
+                            preparedBy: payer.publicKey,
+                            stagedOutbound,
+                            stagedCustodyToken,
+                            usdcRefundToken: senderToken,
+                            targetPeer: swapLayer.registeredPeerComposite({
+                                chain: invalidChain,
+                            }),
+                            tokenRouterCustodian: tokenRouter.custodianAddress(),
+                            preparedOrder,
+                            preparedCustodyToken:
+                                tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+                            usdc: swapLayer.usdcComposite(),
+                            tokenRouterProgram: tokenRouter.ID,
+                            tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                            systemProgram: SystemProgram.programId,
+                        })
+                        .instruction();
 
                     await expectIxErr(
                         connection,
                         [ix],
-                        [payer, preparedOrder],
-                        "AccountNotInitialized",
+                        [payer],
+                        "peer. Error Code: AccountNotInitialized",
                     );
                 });
 
-                it("Cannot Initiate Transfer (Invalid Recipient)", async function () {
-                    const amountIn = 6900000000n;
-                    const gasDropoff = 100000;
-                    const maxRelayerFee = 9999999999999;
-
-                    const preparedOrder = Keypair.generate();
-
-                    // Pass the payer key as the prepared order.
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
-                            payer: payer.publicKey,
-                            preparedOrder: preparedOrder.publicKey,
-                        },
-                        {
-                            amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain,
-                            relayOptions: {
-                                gasDropoff: gasDropoff,
-                                maxRelayerFee: new BN(maxRelayerFee),
-                            },
-                            recipient: new Array(32).fill(0),
-                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
-                            payload: null,
-                        },
-                    );
-
-                    await expectIxErr(connection, [ix], [payer, preparedOrder], "InvalidRecipient");
-                });
-
-                it("Cannot Initiate Transfer (Max Relayer Fee Exceeded)", async function () {
-                    const amountIn = 6900000000n;
-                    const gasDropoff = 100000;
-
-                    // Set the max relayer fee to the minimum.
-                    const maxRelayerFee = 1;
-
-                    const preparedOrder = Keypair.generate();
-
-                    // Pass the payer key as the prepared order.
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
-                            payer: payer.publicKey,
-                            preparedOrder: preparedOrder.publicKey,
-                        },
-                        {
-                            amountIn: new BN(amountIn.toString()),
-                            targetChain: foreignChain,
-                            relayOptions: {
-                                gasDropoff: gasDropoff,
-                                maxRelayerFee: new BN(maxRelayerFee),
-                            },
-                            recipient: foreignRecipientAddress,
-                            encodedOutputToken: Buffer.from(encodeOutputToken({ type: "Usdc" })),
-                            payload: null,
-                        },
-                    );
-
-                    await expectIxErr(
-                        connection,
-                        [ix],
-                        [payer, preparedOrder],
-                        "ExceedsMaxRelayingFee",
-                    );
+                it.skip("Cannot Initiate Transfer (Peer Mismatch)", async function () {
+                    // TODO
                 });
 
                 it("Cannot Initiate Transfer (Relaying Disabled)", async function () {
@@ -2984,7 +3000,7 @@ describe("Swap Layer", () => {
                     // Balance check.
                     const stagedInbound = swapLayer.stagedInboundAddress(preparedFill);
                     const stagedInboundTokenAddress =
-                        swapLayer.stagedInboundTokenAddress(stagedInbound);
+                        swapLayer.stagedCustodyTokenAddress(stagedInbound);
 
                     const { amount: balanceAfter } = await splToken.getAccount(
                         connection,
@@ -3042,7 +3058,7 @@ describe("Swap Layer", () => {
                     const expectedLamports = await connection
                         .getAccountInfo(stagedInbound)
                         .then((info) => info!.lamports);
-                    const custodyToken = swapLayer.stagedInboundTokenAddress(stagedInbound);
+                    const custodyToken = swapLayer.stagedCustodyTokenAddress(stagedInbound);
                     const { amount: stagedTokenBalance } = await splToken.getAccount(
                         connection,
                         custodyToken,
@@ -3233,5 +3249,52 @@ describe("Swap Layer", () => {
         );
 
         await expectIxOk(swapLayer.program.provider.connection, [ix], [feeUpdater]);
+    }
+
+    async function stageOutboundForTest(
+        accounts: {
+            payer: PublicKey;
+            senderToken: PublicKey;
+        },
+        opts: {
+            amountIn?: bigint;
+            redeemOption?: RedeemOption | null;
+            outputToken?: OutputToken | null;
+        } = {},
+    ) {
+        const stagedOutboundSigner = Keypair.generate();
+        const stagedOutbound = stagedOutboundSigner.publicKey;
+
+        let { amountIn, redeemOption, outputToken } = opts;
+        amountIn ??= 690000n;
+        redeemOption ??= null;
+        outputToken ??= null;
+
+        const [approveIx, ix] = await swapLayer.stageOutboundIx(
+            {
+                ...accounts,
+                stagedOutbound,
+                usdcRefundToken: accounts.senderToken,
+            },
+            {
+                transferType: "sender",
+                amountIn,
+                targetChain: foreignChain,
+                recipient: foreignRecipientAddress,
+                redeemOption: null,
+                outputToken: null,
+            },
+        );
+        assert.isNull(approveIx);
+
+        await expectIxOk(connection, [ix], [payer, stagedOutboundSigner]);
+
+        const stagedCustodyToken = swapLayer.stagedCustodyTokenAddress(stagedOutbound);
+        const { amount: custodyBalance } = await splToken.getAccount(
+            connection,
+            stagedCustodyToken,
+        );
+
+        return { stagedOutbound, stagedCustodyToken, custodyBalance };
     }
 });
