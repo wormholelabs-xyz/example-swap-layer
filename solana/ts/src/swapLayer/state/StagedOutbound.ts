@@ -29,13 +29,9 @@ export type StagedOutboundInfo = {
 export class StagedOutbound {
     info: StagedOutboundInfo;
     stagedRedeem: StagedRedeem;
-    encodedOutputToken: Buffer | null;
+    encodedOutputToken: Buffer;
 
-    constructor(
-        info: StagedOutboundInfo,
-        stagedRedeem: StagedRedeem,
-        encodedOutputToken: Buffer | null,
-    ) {
+    constructor(info: StagedOutboundInfo, stagedRedeem: StagedRedeem, encodedOutputToken: Buffer) {
         this.info = info;
         this.stagedRedeem = stagedRedeem;
         this.encodedOutputToken = encodedOutputToken;

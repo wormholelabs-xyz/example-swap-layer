@@ -47,7 +47,7 @@ pub struct StagedOutboundInfo {
 pub struct StagedOutbound {
     pub info: StagedOutboundInfo,
     pub staged_redeem: StagedRedeem,
-    pub encoded_output_token: Option<Vec<u8>>,
+    pub encoded_output_token: Vec<u8>,
 }
 
 impl StagedOutbound {
@@ -77,7 +77,7 @@ impl StagedOutbound {
 
                     encoded_output_token.len().saturating_add(4)
                 }
-                None => 0,
+                None => 5, // len + OutputToken::Usdc,
             }))
     }
 }

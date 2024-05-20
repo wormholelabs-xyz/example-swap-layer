@@ -6,7 +6,7 @@ use crate::{
 };
 use anchor_lang::{prelude::*, system_program};
 use anchor_spl::token;
-use common::wormhole_io::Readable;
+use common::wormhole_io::{Readable, Writeable};
 use solana_program::keccak;
 use swap_layer_messages::types::OutputToken;
 
@@ -128,6 +128,14 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
         encoded_output_token,
     } = args;
 
+    // Replace None with OutputToken::USDC encoded.
+    let encoded_output_token = encoded_output_token.unwrap_or({
+        let mut buf = Vec::with_capacity(1);
+        OutputToken::Usdc.write(&mut buf).unwrap();
+        buf
+    });
+    let output_token = OutputToken::read(&mut &encoded_output_token[..]).unwrap();
+
     // We need to determine the relayer fee. This fee will either be paid for right now if
     // StagedInput::Usdc or will be paid for later if a swap is required to get USDC.
     let (transfer_amount, staged_redeem) = match redeem_option {
@@ -136,13 +144,6 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
                 gas_dropoff,
                 max_relayer_fee,
             } => {
-                let output_token = encoded_output_token
-                    .as_ref()
-                    .map(|encoded_output_token| {
-                        OutputToken::read(&mut &encoded_output_token[..]).unwrap()
-                    })
-                    .unwrap_or(OutputToken::Usdc);
-
                 // Relaying fee must be less than the user-specific maximum.
                 let relaying_fee = utils::relayer_fees::calculate_relayer_fee(
                     &ctx.accounts.target_peer.relay_params,
