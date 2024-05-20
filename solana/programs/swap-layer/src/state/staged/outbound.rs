@@ -15,10 +15,14 @@ pub enum RedeemOption {
     Payload(Vec<u8>),
 }
 
-#[derive(Debug, Clone, AnchorSerialize, AnchorDeserialize)]
+#[derive(Debug, Default, Clone, AnchorSerialize, AnchorDeserialize)]
 pub enum StagedRedeem {
+    #[default]
     Direct,
-    Relay { gas_dropoff: u32, relaying_fee: u64 },
+    Relay {
+        gas_dropoff: u32,
+        relaying_fee: u64,
+    },
     Payload(Vec<u8>),
 }
 
@@ -29,9 +33,6 @@ pub struct StagedOutboundInfo {
     /// One who paid the lamports to create [StagedOutbound].
     pub prepared_by: Pubkey,
 
-    /// The mint of the token to be transferred.
-    pub src_mint: Pubkey,
-
     /// Sender of the swap message.
     pub sender: Pubkey,
 
@@ -40,6 +41,9 @@ pub struct StagedOutboundInfo {
 
     /// Intended recipient of the transfer.
     pub recipient: [u8; 32],
+
+    /// The mint of the token to be transferred.
+    pub usdc_refund_token: Pubkey,
 }
 
 #[account]

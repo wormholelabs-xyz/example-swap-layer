@@ -20,10 +20,10 @@ export type StagedRedeem =
 export type StagedOutboundInfo = {
     custodyTokenBump: number;
     preparedBy: PublicKey;
-    srcMint: PublicKey;
     sender: PublicKey;
     targetChain: number;
     recipient: Array<number>;
+    usdcRefundToken: PublicKey;
 };
 
 export class StagedOutbound {

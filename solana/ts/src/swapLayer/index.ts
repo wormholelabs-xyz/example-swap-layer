@@ -56,7 +56,7 @@ type RegisteredPeerComposite = { peer: PublicKey };
 
 export class SwapLayerProgram {
     private _programId: ProgramId;
-    private _mint: PublicKey;
+    private _usdcMint: PublicKey;
 
     program: Program<SwapLayer>;
 
@@ -64,13 +64,13 @@ export class SwapLayerProgram {
         return this.program.programId;
     }
 
-    get mint(): PublicKey {
-        return this._mint;
+    get usdcMint(): PublicKey {
+        return this._usdcMint;
     }
 
-    constructor(connection: Connection, programId: ProgramId, mint: PublicKey) {
+    constructor(connection: Connection, programId: ProgramId, usdcMint: PublicKey) {
         this._programId = programId;
-        this._mint = mint;
+        this._usdcMint = usdcMint;
         this.program = new Program(
             { ...(IDL as any), address: this._programId },
             {
@@ -93,7 +93,7 @@ export class SwapLayerProgram {
 
     usdcComposite(mint?: PublicKey): { mint: PublicKey } {
         return {
-            mint: mint ?? this.mint,
+            mint: mint ?? this._usdcMint,
         };
     }
 
@@ -261,9 +261,12 @@ export class SwapLayerProgram {
                 custodian: this.custodianAddress(),
                 ownerAssistant,
                 feeRecipient,
-                feeRecipientToken: splToken.getAssociatedTokenAddressSync(this.mint, feeRecipient),
+                feeRecipientToken: splToken.getAssociatedTokenAddressSync(
+                    this.usdcMint,
+                    feeRecipient,
+                ),
                 feeUpdater,
-                usdc: this.usdcComposite(this.mint),
+                usdc: this.usdcComposite(),
                 systemProgram: SystemProgram.programId,
             })
             .instruction();
@@ -422,7 +425,7 @@ export class SwapLayerProgram {
                 admin: this.adminMutComposite(ownerOrAssistant, custodian),
                 newFeeRecipient,
                 newFeeRecipientToken: splToken.getAssociatedTokenAddressSync(
-                    this.mint,
+                    this.usdcMint,
                     newFeeRecipient,
                 ),
             })
@@ -433,6 +436,7 @@ export class SwapLayerProgram {
         accounts: {
             payer: PublicKey;
             stagedOutbound: PublicKey;
+            usdcRefundToken: PublicKey;
             sender?: PublicKey | null;
             senderToken?: PublicKey | null;
             programTransferAuthority?: PublicKey | null;
@@ -451,11 +455,11 @@ export class SwapLayerProgram {
             outputToken: OutputToken | null;
         },
     ): Promise<[approveIx: TransactionInstruction | null, stageIx: TransactionInstruction]> {
-        const { payer, stagedOutbound, peer } = accounts;
+        const { payer, stagedOutbound, usdcRefundToken, peer } = accounts;
         const { transferType, amountIn, redeemOption: inputRedeemOption, outputToken } = args;
 
         let { sender, senderToken, programTransferAuthority, srcMint } = accounts;
-        srcMint ??= transferType === "native" ? splToken.NATIVE_MINT : this.mint;
+        srcMint ??= transferType === "native" ? splToken.NATIVE_MINT : this.usdcMint;
 
         const redeemOption = ((): RedeemOption | null => {
             if (inputRedeemOption === null) {
@@ -526,6 +530,7 @@ export class SwapLayerProgram {
                 [Buffer.from("staged-custody"), stagedOutbound.toBuffer()],
                 this.ID,
             )[0],
+            usdcRefundToken,
             srcMint,
             tokenProgram: splToken.TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
@@ -575,7 +580,7 @@ export class SwapLayerProgram {
     ) {
         let { payer, preparedOrder, payerToken, peer } = accounts;
 
-        payerToken ??= splToken.getAssociatedTokenAddressSync(this.mint, payer);
+        payerToken ??= splToken.getAssociatedTokenAddressSync(this.usdcMint, payer);
         peer ??= this.peerAddress(args.targetChain as wormholeSdk.ChainId);
 
         const tokenRouter = this.tokenRouterProgram();
@@ -585,7 +590,7 @@ export class SwapLayerProgram {
             .accounts({
                 payer,
                 payerToken,
-                usdc: this.usdcComposite(this.mint),
+                usdc: this.usdcComposite(),
                 peer,
                 tokenRouterCustodian: tokenRouter.custodianAddress(),
                 preparedOrder,
@@ -620,7 +625,7 @@ export class SwapLayerProgram {
         } = accounts;
 
         beneficiary ??= payer;
-        recipientTokenAccount ??= splToken.getAssociatedTokenAddressSync(this.mint, recipient);
+        recipientTokenAccount ??= splToken.getAssociatedTokenAddressSync(this.usdcMint, recipient);
 
         // Need the undefined check to satisfy the type checker.
         feeRecipientToken ??= await this.fetchCustodian().then((c) => c.feeRecipientToken);
@@ -643,7 +648,7 @@ export class SwapLayerProgram {
                 completeTokenAccount: this.completeTokenAccountKey(preparedFill),
                 recipient,
                 recipientTokenAccount,
-                usdc: this.usdcComposite(this.mint),
+                usdc: this.usdcComposite(),
                 feeRecipientToken,
                 tokenProgram: splToken.TOKEN_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
@@ -666,7 +671,7 @@ export class SwapLayerProgram {
 
         beneficiary ??= payer;
         recipient ??= payer;
-        recipientTokenAccount ??= splToken.getAssociatedTokenAddressSync(this.mint, recipient);
+        recipientTokenAccount ??= splToken.getAssociatedTokenAddressSync(this.usdcMint, recipient);
 
         return this.program.methods
             .completeTransferDirect()
@@ -716,7 +721,7 @@ export class SwapLayerProgram {
                 ),
                 stagedInbound,
                 stagedCustodyToken,
-                usdc: this.usdcComposite(this.mint),
+                usdc: this.usdcComposite(),
                 tokenProgram: splToken.TOKEN_PROGRAM_ID,
                 systemProgram: SystemProgram.programId,
             })
@@ -776,7 +781,7 @@ export class SwapLayerProgram {
                     }),
                     authority: swapAuthority,
                     srcSwapToken: splToken.getAssociatedTokenAddressSync(
-                        this.mint,
+                        this.usdcMint,
                         swapAuthority,
                         true, // allowOwnerOffCurve
                     ),
@@ -804,7 +809,7 @@ export class SwapLayerProgram {
                 return new tokenRouterSdk.TokenRouterProgram(
                     this.connection(),
                     tokenRouterSdk.localnet(),
-                    this.mint,
+                    this.usdcMint,
                 );
             }
             default: {

@@ -90,6 +90,12 @@ pub struct StageOutbound<'info> {
     )]
     staged_custody_token: Account<'info, token::TokenAccount>,
 
+    #[account(
+        mut,
+        token::mint = common::USDC_MINT,
+    )]
+    usdc_refund_token: Box<Account<'info, token::TokenAccount>>,
+
     /// Mint can either be USDC or whichever mint is used to swap into USDC.
     src_mint: Account<'info, token::Mint>,
 
@@ -257,7 +263,7 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
         info: StagedOutboundInfo {
             custody_token_bump: ctx.bumps.staged_custody_token,
             prepared_by: ctx.accounts.payer.key(),
-            src_mint: ctx.accounts.src_mint.key(),
+            usdc_refund_token: ctx.accounts.usdc_refund_token.key(),
             sender,
             target_chain,
             recipient,

@@ -1122,6 +1122,10 @@ describe("Swap Layer", () => {
                     {
                         payer: payer.publicKey,
                         stagedOutbound,
+                        usdcRefundToken: splToken.getAssociatedTokenAddressSync(
+                            swapLayer.usdcMint,
+                            payer.publicKey,
+                        ),
                         sender: null,
                     },
                     {
@@ -1166,6 +1170,10 @@ describe("Swap Layer", () => {
                     {
                         payer: payer.publicKey,
                         stagedOutbound,
+                        usdcRefundToken: splToken.getAssociatedTokenAddressSync(
+                            swapLayer.usdcMint,
+                            payer.publicKey,
+                        ),
                         sender,
                     },
                     {
@@ -1197,7 +1205,7 @@ describe("Swap Layer", () => {
 
                 const amountIn = 690000n;
                 const senderToken = splToken.getAssociatedTokenAddressSync(
-                    swapLayer.mint,
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
                 const [approveIx, ix] = await swapLayer.stageOutboundIx(
@@ -1205,6 +1213,7 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken,
                         stagedOutbound,
+                        usdcRefundToken: senderToken,
                     },
                     {
                         transferType: "sender",
@@ -1258,6 +1267,10 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken: null,
                         stagedOutbound,
+                        usdcRefundToken: splToken.getAssociatedTokenAddressSync(
+                            swapLayer.usdcMint,
+                            payer.publicKey,
+                        ),
                     },
                     {
                         transferType: "programTransferAuthority",
@@ -1284,7 +1297,7 @@ describe("Swap Layer", () => {
 
                 const amountIn = 690000n;
                 const senderToken = splToken.getAssociatedTokenAddressSync(
-                    swapLayer.mint,
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
                 const ixs = await swapLayer.stageOutboundIx(
@@ -1292,6 +1305,7 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken,
                         stagedOutbound,
+                        usdcRefundToken: senderToken,
                     },
                     {
                         transferType: "programTransferAuthority",
@@ -1321,7 +1335,7 @@ describe("Swap Layer", () => {
                 const amountIn = 690000n;
                 const gasDropoff = 42069;
                 const senderToken = splToken.getAssociatedTokenAddressSync(
-                    swapLayer.mint,
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
                 const [, ix] = await swapLayer.stageOutboundIx(
@@ -1329,6 +1343,7 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken,
                         stagedOutbound,
+                        usdcRefundToken: senderToken,
                     },
                     {
                         transferType: "sender",
@@ -1364,7 +1379,7 @@ describe("Swap Layer", () => {
                 const amountIn = 2n ** 64n - 1n;
                 const gasDropoff = 42069;
                 const senderToken = splToken.getAssociatedTokenAddressSync(
-                    swapLayer.mint,
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
                 const [, ix] = await swapLayer.stageOutboundIx(
@@ -1372,6 +1387,7 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken,
                         stagedOutbound,
+                        usdcRefundToken: senderToken,
                     },
                     {
                         transferType: "sender",
@@ -1397,7 +1413,7 @@ describe("Swap Layer", () => {
 
                 const amountIn = 690000n;
                 const senderToken = splToken.getAssociatedTokenAddressSync(
-                    swapLayer.mint,
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
                 const ixs = await swapLayer.stageOutboundIx(
@@ -1405,6 +1421,7 @@ describe("Swap Layer", () => {
                         payer: payer.publicKey,
                         senderToken,
                         stagedOutbound,
+                        usdcRefundToken: senderToken,
                     },
                     {
                         transferType: "programTransferAuthority",
