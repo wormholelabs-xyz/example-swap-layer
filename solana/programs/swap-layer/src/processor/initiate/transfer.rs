@@ -14,7 +14,6 @@ use swap_layer_messages::{
 #[derive(Accounts)]
 pub struct InitiateTransferNew<'info> {
     #[account(mut)]
-    /// The payer of the transaction. This could either be the recipient or a relayer.
     payer: Signer<'info>,
 
     custodian: CheckedCustodian<'info>,

@@ -140,8 +140,6 @@ pub fn calculate_relayer_fee(
             gas_price,
             gas_price_margin,
         } => {
-            // let mut total_gas = EVM_GAS_OVERHEAD;
-
             let total_gas = EVM_GAS_OVERHEAD
                 .saturating_add(if specified_gas_dropoff > 0 {
                     DROPOFF_GAS_OVERHEAD
@@ -155,15 +153,6 @@ pub fn calculate_relayer_fee(
                     }
                     _ => 0,
                 });
-
-            // let swap_overhead = match output_token {
-            //     OutputToken::Gas(swap) | OutputToken::Other { address: _, swap } => {
-            //         calculate_evm_swap_overhead(&swap.swap_type)
-            //             .ok_or(SwapLayerError::EvmGasCalculationFailed)?
-            //     }
-            //     _ => 0,
-            // };
-            // total_gas = total_gas.saturating_add(swap_overhead);
 
             let evm_gas_cost = calculate_evm_gas_cost(
                 gas_price,

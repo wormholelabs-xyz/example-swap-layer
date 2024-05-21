@@ -143,7 +143,12 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
     let output_token = OutputToken::read(&mut &encoded_output_token[..]).unwrap();
 
     // We need to determine the relayer fee. This fee will either be paid for right now if
-    // StagedInput::Usdc or will be paid for later if a swap is required to get USDC.
+    // StagedInput::Usdc or will be deducted from the USDC after a resulting swap from the source
+    // mint.
+    //
+    // NOTE: The swap instruction will revert if the amount of destination tokens is less than the
+    // calculated relaying fee. The amount of source tokens should be sufficient enough to cover the
+    // relaying fee after the swap.
     let (transfer_amount, staged_redeem) = match redeem_option {
         Some(redeem_option) => match redeem_option {
             RedeemOption::Relay {
