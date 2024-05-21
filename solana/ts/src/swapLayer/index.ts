@@ -216,6 +216,12 @@ export class SwapLayerProgram {
         return StagedInbound.address(this.ID, preparedFill);
     }
 
+    preparedOrderAddress(stagedOutbound: PublicKey) {
+        return PublicKey.findProgramAddressSync(
+            [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
+            this.ID,
+        )[0];
+    }
     async fetchStagedInbound(addr: PublicKey): Promise<StagedInbound> {
         return this.program.account.stagedInbound.fetch(addr);
     }
@@ -569,20 +575,39 @@ export class SwapLayerProgram {
     async initiateTransferIx(
         accounts: {
             payer: PublicKey;
-            preparedOrder: PublicKey;
             stagedOutbound: PublicKey;
-            refundToken?: PublicKey;
+            preparedOrder?: PublicKey;
+            usdcRefundToken?: PublicKey;
             stagedCustodyToken?: PublicKey;
             preparedBy?: PublicKey;
         },
-        targetChain: ChainId,
+        opts: {
+            targetChain?: ChainId;
+        } = {},
     ) {
-        let { payer, preparedOrder, refundToken, stagedOutbound, stagedCustodyToken, preparedBy } =
-            accounts;
+        let {
+            payer,
+            preparedOrder,
+            usdcRefundToken,
+            stagedOutbound,
+            stagedCustodyToken,
+            preparedBy,
+        } = accounts;
 
-        refundToken ??= splToken.getAssociatedTokenAddressSync(this.usdcMint, payer);
+        let { targetChain } = opts;
+        if (
+            targetChain === undefined ||
+            usdcRefundToken === undefined ||
+            preparedBy === undefined
+        ) {
+            const { info } = await this.fetchStagedOutbound(stagedOutbound);
+            targetChain ??= info.targetChain as ChainId;
+            usdcRefundToken ??= info.usdcRefundToken;
+            preparedBy ??= info.preparedBy;
+        }
+
+        preparedOrder ??= this.preparedOrderAddress(stagedOutbound);
         stagedCustodyToken ??= this.stagedCustodyTokenAddress(stagedOutbound);
-        preparedBy ??= payer;
 
         return this.program.methods
             .initiateTransfer()
@@ -592,7 +617,7 @@ export class SwapLayerProgram {
                 preparedBy,
                 stagedOutbound,
                 stagedCustodyToken,
-                usdcRefundToken: refundToken,
+                usdcRefundToken,
                 targetPeer: this.registeredPeerComposite({ chain: targetChain }),
                 tokenRouterCustodian: this.tokenRouterProgram().custodianAddress(),
                 preparedOrder,

@@ -1633,20 +1633,15 @@ describe("Swap Layer", () => {
                         senderToken,
                     });
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
-
                     const ix = await swapLayer.initiateTransferIx(
                         {
                             payer: payer.publicKey,
-                            preparedOrder,
+                            preparedOrder: swapLayer.preparedOrderAddress(stagedOutbound),
                             stagedOutbound,
                             stagedCustodyToken,
                             preparedBy: ownerAssistant.publicKey, // Invalid pubkey.
                         },
-                        foreignChain,
+                        { targetChain: foreignChain },
                     );
 
                     await expectIxErr(connection, [ix], [payer], "Error Code: ConstraintAddress");
@@ -1663,20 +1658,15 @@ describe("Swap Layer", () => {
                         senderToken,
                     });
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
-
                     const ix = await swapLayer.initiateTransferIx(
                         {
                             payer: payer.publicKey,
-                            preparedOrder,
+                            preparedOrder: swapLayer.preparedOrderAddress(stagedOutbound),
                             stagedOutbound,
                             stagedCustodyToken,
-                            refundToken: ownerAssistant.publicKey, // Invalid pubkey.
+                            usdcRefundToken: ownerAssistant.publicKey, // Invalid pubkey.
                         },
-                        foreignChain,
+                        { targetChain: foreignChain },
                     );
 
                     await expectIxErr(connection, [ix], [payer], "Error Code: ConstraintAddress");
@@ -1695,19 +1685,14 @@ describe("Swap Layer", () => {
 
                     const invalidChain = toChainId("Holesky");
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
-
                     const ix = await swapLayer.initiateTransferIx(
                         {
                             payer: payer.publicKey,
-                            preparedOrder,
+                            preparedOrder: swapLayer.preparedOrderAddress(stagedOutbound),
                             stagedOutbound,
                             stagedCustodyToken,
                         },
-                        invalidChain,
+                        { targetChain: invalidChain },
                     );
 
                     await expectIxErr(
@@ -1739,19 +1724,14 @@ describe("Swap Layer", () => {
                         relayParams: relayParamsForTest,
                     });
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
-
                     const ix = await swapLayer.initiateTransferIx(
                         {
                             payer: payer.publicKey,
-                            preparedOrder,
+                            preparedOrder: swapLayer.preparedOrderAddress(stagedOutbound),
                             stagedOutbound,
                             stagedCustodyToken,
                         },
-                        holeskyChain,
+                        { targetChain: holeskyChain },
                     );
 
                     await expectIxErr(connection, [ix], [payer], "InvalidPeer");
@@ -1817,20 +1797,14 @@ describe("Swap Layer", () => {
                                     },
                                 );
 
-                            const preparedOrder = PublicKey.findProgramAddressSync(
-                                [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                                swapLayer.ID,
-                            )[0];
+                            const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
 
-                            const ix = await swapLayer.initiateTransferIx(
-                                {
-                                    payer: payer.publicKey,
-                                    preparedOrder,
-                                    stagedOutbound,
-                                    stagedCustodyToken,
-                                },
-                                foreignChain,
-                            );
+                            const ix = await swapLayer.initiateTransferIx({
+                                payer: payer.publicKey,
+                                preparedOrder,
+                                stagedOutbound,
+                                stagedCustodyToken,
+                            });
 
                             await expectIxOk(connection, [ix], [payer]);
 
@@ -2339,20 +2313,14 @@ describe("Swap Layer", () => {
                         },
                     );
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
+                    const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
 
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
-                            payer: payer.publicKey,
-                            preparedOrder,
-                            stagedOutbound,
-                            stagedCustodyToken,
-                        },
-                        foreignChain,
-                    );
+                    const ix = await swapLayer.initiateTransferIx({
+                        payer: payer.publicKey,
+                        preparedOrder,
+                        stagedOutbound,
+                        stagedCustodyToken,
+                    });
 
                     await expectIxOk(connection, [ix], [payer]);
 
@@ -2684,20 +2652,14 @@ describe("Swap Layer", () => {
                         },
                     );
 
-                    const preparedOrder = PublicKey.findProgramAddressSync(
-                        [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                        swapLayer.ID,
-                    )[0];
+                    const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
 
-                    const ix = await swapLayer.initiateTransferIx(
-                        {
-                            payer: payer.publicKey,
-                            preparedOrder,
-                            stagedOutbound,
-                            stagedCustodyToken,
-                        },
-                        foreignChain,
-                    );
+                    const ix = await swapLayer.initiateTransferIx({
+                        payer: payer.publicKey,
+                        preparedOrder,
+                        stagedOutbound,
+                        stagedCustodyToken,
+                    });
 
                     await expectIxOk(connection, [ix], [payer]);
 
