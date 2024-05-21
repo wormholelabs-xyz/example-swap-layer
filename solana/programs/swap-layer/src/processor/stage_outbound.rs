@@ -204,6 +204,14 @@ pub fn stage_outbound(ctx: Context<StageOutbound>, args: StageOutboundArgs) -> R
                 sender.key()
             }
             (None, Some(program_transfer_authority)) => {
+                // If the program transfer authority is used, we require that the delegated amount
+                // is exactly the amount being transferred.
+                require_eq!(
+                    sender_token.delegated_amount,
+                    transfer_amount,
+                    SwapLayerError::DelegatedAmountMismatch,
+                );
+
                 let (hashed_args, authority_bump) = last_transfer_authority_signer_seeds.unwrap();
 
                 token::transfer(

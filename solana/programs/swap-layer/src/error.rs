@@ -45,6 +45,7 @@ pub enum SwapLayerError {
     SenderRequired = 0x244,
     RelayingFeeExceedsMinAmountOut = 0x260,
     ZeroMinAmountOut = 0x262,
+    DelegatedAmountMismatch = 0x264,
 
     // Swap
     SwapPastDeadline = 0x300,
