@@ -1,16 +1,12 @@
 use crate::{
     composite::*,
     error::SwapLayerError,
-    state::{Custodian, Peer, StagedOutbound, StagedRedeem},
-    utils,
+    state::{Custodian, Peer, StagedOutbound},
+    PREPARED_ORDER_SEED_PREFIX,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token, token};
-use common::wormhole_io::{Readable, TypePrefixedPayload};
-use swap_layer_messages::{
-    messages::SwapMessageV1,
-    types::{OutputToken, RedeemMode, Uint48},
-};
+use common::wormhole_io::TypePrefixedPayload;
 
 #[derive(Accounts)]
 pub struct InitiateSwapExactIn<'info> {
@@ -110,7 +106,7 @@ pub struct InitiateSwapExactIn<'info> {
     #[account(
         mut,
         seeds = [
-            crate::PREPARED_ORDER_SEED_PREFIX,
+            PREPARED_ORDER_SEED_PREFIX,
             staged_outbound.key().as_ref(),
         ],
         bump,
@@ -168,9 +164,12 @@ where
         );
     }
 
-    // We perform this operation first so we can have an immutable reference to the staged outbound
-    // account.
-    let staged_redeem = std::mem::take(&mut ctx.accounts.staged_outbound.staged_redeem);
+    let redeemer_message = ctx
+        .accounts
+        .staged_outbound
+        .to_swap_message_v1()
+        .map(|msg| msg.to_vec())?;
+
     let staged_outbound = &ctx.accounts.staged_outbound;
 
     let staged_outbound_key = staged_outbound.key();
@@ -180,22 +179,16 @@ where
         &[ctx.bumps.swap_authority],
     ];
 
-    let limit_amount = utils::jupiter_v6::compute_min_amount_out(&swap_args);
-
     // Execute swap.
-    shared_accounts_route.invoke_cpi(swap_args, swap_authority_seeds, cpi_remaining_accounts)?;
-
-    // After the swap, we reload the destination token account to get the correct amount.
-    ctx.accounts.dst_swap_token.reload()?;
-    let dst_swap_token = &ctx.accounts.dst_swap_token;
-
-    require_gte!(
-        dst_swap_token.amount,
-        limit_amount,
-        SwapLayerError::SwapFailed
-    );
+    let usdc_amount_out = shared_accounts_route.swap_exact_in(
+        swap_args,
+        swap_authority_seeds,
+        cpi_remaining_accounts,
+        Default::default(),
+    )?;
 
     let token_program = &ctx.accounts.token_program;
+    let dst_swap_token = &ctx.accounts.dst_swap_token;
     let custodian = &ctx.accounts.custodian;
 
     // Change the custody token authority from target peer to custodian.
@@ -216,34 +209,6 @@ where
         token::spl_token::instruction::AuthorityType::AccountOwner,
         custodian.key().into(),
     )?;
-
-    // Decode the output token to verify that it's valid.
-    let output_token = OutputToken::read(&mut &staged_outbound.encoded_output_token[..])
-        .map_err(|_| SwapLayerError::InvalidOutputToken)?;
-
-    let swap_message = match staged_redeem {
-        StagedRedeem::Direct => SwapMessageV1 {
-            recipient: staged_outbound.info.recipient,
-            redeem_mode: RedeemMode::Direct,
-            output_token,
-        },
-        StagedRedeem::Relay {
-            gas_dropoff,
-            relaying_fee,
-        } => SwapMessageV1 {
-            recipient: staged_outbound.info.recipient,
-            redeem_mode: RedeemMode::Relay {
-                gas_dropoff,
-                relaying_fee: Uint48::try_from(relaying_fee).unwrap(),
-            },
-            output_token,
-        },
-        StagedRedeem::Payload(payload) => SwapMessageV1 {
-            recipient: staged_outbound.info.recipient,
-            redeem_mode: RedeemMode::Payload(payload),
-            output_token,
-        },
-    };
 
     // Prepare market order as custodian.
     token_router::cpi::prepare_market_order(
@@ -266,14 +231,21 @@ where
                 token_program: token_program.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
             },
-            &[Custodian::SIGNER_SEEDS],
+            &[
+                Custodian::SIGNER_SEEDS,
+                &[
+                    PREPARED_ORDER_SEED_PREFIX,
+                    staged_outbound.key().as_ref(),
+                    &[ctx.bumps.prepared_order],
+                ],
+            ],
         ),
         token_router::PrepareMarketOrderArgs {
-            amount_in: dst_swap_token.amount,
-            min_amount_out: None,
+            amount_in: usdc_amount_out,
+            min_amount_out: Default::default(),
             target_chain: staged_outbound.target_chain,
             redeemer: ctx.accounts.target_peer.address,
-            redeemer_message: swap_message.to_vec(),
+            redeemer_message,
         },
     )?;
 

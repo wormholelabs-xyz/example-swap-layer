@@ -4,6 +4,7 @@ use crate::{
     error::SwapLayerError,
     state::{Custodian, Peer},
     utils::{
+        self,
         jupiter_v6::{self, cpi::SharedAccountsRouteArgs, JUPITER_V6_PROGRAM_ID},
         AnchorInstructionData,
     },
@@ -520,12 +521,15 @@ impl<'info> JupiterV6SharedAccountsRoute<'info> {
         Ok((accounts, args, cpi_account_infos.to_vec()))
     }
 
-    pub fn invoke_cpi(
+    pub fn swap_exact_in(
         &self,
         args: SharedAccountsRouteArgs,
         signer_seeds: &[&[u8]],
         cpi_remaining_accounts: Vec<AccountInfo<'info>>,
-    ) -> Result<()> {
+        limit_amount: Option<u64>,
+    ) -> Result<u64> {
+        let limit_amount = limit_amount.unwrap_or(utils::jupiter_v6::compute_min_amount_out(&args));
+
         jupiter_v6::cpi::shared_accounts_route(
             CpiContext::new_with_signer(
                 self.jupiter_v6_program.to_account_info(),
@@ -548,6 +552,18 @@ impl<'info> JupiterV6SharedAccountsRoute<'info> {
             )
             .with_remaining_accounts(cpi_remaining_accounts),
             args,
+        )?;
+
+        // After the swap, we reload the destination token account to get the correct amount.
+        let amount_out = token::TokenAccount::try_deserialize_unchecked(
+            &mut &self.dst_custody_token.data.borrow()[..],
         )
+        .map(|token| token.amount)?;
+
+        // Rarely do I use the gte macro, but this is a good use case for it. I want to display the
+        // amounts if the limit amount is not met.
+        require_gte!(amount_out, limit_amount, SwapLayerError::SwapFailed);
+
+        Ok(amount_out)
     }
 }
