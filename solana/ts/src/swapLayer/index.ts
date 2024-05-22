@@ -190,21 +190,21 @@ export class SwapLayerProgram {
         };
     }
 
-    swapAuthorityAddress(preparedFill: PublicKey): PublicKey {
+    swapAuthorityAddress(preparedSource: PublicKey): PublicKey {
         return PublicKey.findProgramAddressSync(
-            [Buffer.from("swap-authority"), preparedFill.toBuffer()],
+            [Buffer.from("swap-authority"), preparedSource.toBuffer()],
             this.ID,
         )[0];
     }
 
-    swapComposite(accounts: {
-        preparedFill: PublicKey;
+    swapAccounts(accounts: {
+        preparedSource: PublicKey;
         sourceMint: PublicKey;
         destinationMint: PublicKey;
     }) {
-        const { preparedFill, sourceMint, destinationMint } = accounts;
+        const { preparedSource, sourceMint, destinationMint } = accounts;
 
-        const authority = this.swapAuthorityAddress(preparedFill);
+        const authority = this.swapAuthorityAddress(preparedSource);
         return {
             authority,
             srcSwapToken: splToken.getAssociatedTokenAddressSync(sourceMint, authority, true),

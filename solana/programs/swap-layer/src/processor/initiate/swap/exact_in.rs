@@ -41,7 +41,7 @@ pub struct InitiateSwapExactIn<'info> {
         ],
         bump = staged_outbound.info.custody_token_bump,
     )]
-    staged_custody_token: Account<'info, token::TokenAccount>,
+    staged_custody_token: Box<Account<'info, token::TokenAccount>>,
 
     /// CHECK: This account must equal the usdc refund token encoded in the staged outbound account.
     #[account(address = staged_outbound.usdc_refund_token)]
@@ -61,11 +61,22 @@ pub struct InitiateSwapExactIn<'info> {
     )]
     target_peer: RegisteredPeer<'info>,
 
-    /// CHECK: Seeds must be \["swap-authority", staged_outbound.key()\].
+    /// CHECK: Mutable, seeds must be \["prepared-order", staged_outbound.key()\]
+    #[account(
+        mut,
+        seeds = [
+            PREPARED_ORDER_SEED_PREFIX,
+            staged_outbound.key().as_ref(),
+        ],
+        bump,
+    )]
+    prepared_order: UncheckedAccount<'info>,
+
+    /// CHECK: Seeds must be \["swap-authority", prepared_order.key()\].
     #[account(
         seeds = [
             crate::SWAP_AUTHORITY_SEED_PREFIX,
-            staged_outbound.key().as_ref(),
+            prepared_order.key().as_ref(),
         ],
         bump,
     )]
@@ -102,17 +113,6 @@ pub struct InitiateSwapExactIn<'info> {
     /// CHECK: Token router config.
     token_router_custodian: UncheckedAccount<'info>,
 
-    /// CHECK: Mutable, seeds must be \["prepared-order", staged_outbound.key()\]
-    #[account(
-        mut,
-        seeds = [
-            PREPARED_ORDER_SEED_PREFIX,
-            staged_outbound.key().as_ref(),
-        ],
-        bump,
-    )]
-    prepared_order: UncheckedAccount<'info>,
-
     /// CHECK: Mutable, seeds must be \["prepared-custody", prepared_order.key()\]
     #[account(mut)]
     prepared_custody_token: UncheckedAccount<'info>,
@@ -130,6 +130,40 @@ pub fn initiate_swap_exact_in<'a, 'b, 'c, 'info>(
 where
     'c: 'info,
 {
+    let token_program = &ctx.accounts.token_program;
+    let custody_token = &ctx.accounts.staged_custody_token;
+
+    let peer = &ctx.accounts.target_peer;
+    let peer_signer_seeds = &[
+        Peer::SEED_PREFIX,
+        &peer.seeds.chain.to_be_bytes(),
+        &[peer.seeds.bump],
+    ];
+
+    // TODO: transfer from custody to src swap token. Close here too?
+    token::transfer(
+        CpiContext::new_with_signer(
+            token_program.to_account_info(),
+            token::Transfer {
+                from: custody_token.to_account_info(),
+                to: ctx.accounts.src_swap_token.to_account_info(),
+                authority: peer.to_account_info(),
+            },
+            &[peer_signer_seeds],
+        ),
+        custody_token.amount,
+    )?;
+
+    token::close_account(CpiContext::new_with_signer(
+        token_program.to_account_info(),
+        token::CloseAccount {
+            account: custody_token.to_account_info(),
+            destination: ctx.accounts.prepared_by.to_account_info(),
+            authority: peer.to_account_info(),
+        },
+        &[peer_signer_seeds],
+    ))?;
+
     let (shared_accounts_route, swap_args, cpi_remaining_accounts) =
         JupiterV6SharedAccountsRoute::set_up(ctx.remaining_accounts, &instruction_data[..])?;
 
@@ -171,11 +205,12 @@ where
         .map(|msg| msg.to_vec())?;
 
     let staged_outbound = &ctx.accounts.staged_outbound;
+    let prepared_order = &ctx.accounts.prepared_order;
 
-    let staged_outbound_key = staged_outbound.key();
+    let prepared_order_key = prepared_order.key();
     let swap_authority_seeds = &[
         crate::SWAP_AUTHORITY_SEED_PREFIX,
-        staged_outbound_key.as_ref(),
+        prepared_order_key.as_ref(),
         &[ctx.bumps.swap_authority],
     ];
 
@@ -187,27 +222,33 @@ where
         Default::default(),
     )?;
 
-    let token_program = &ctx.accounts.token_program;
+    let payer = &ctx.accounts.payer;
+
+    // Close the source swap token account.
+    token::close_account(CpiContext::new_with_signer(
+        token_program.to_account_info(),
+        token::CloseAccount {
+            account: ctx.accounts.src_swap_token.to_account_info(),
+            destination: payer.to_account_info(),
+            authority: swap_authority.to_account_info(),
+        },
+        &[swap_authority_seeds],
+    ))?;
+
     let dst_swap_token = &ctx.accounts.dst_swap_token;
     let custodian = &ctx.accounts.custodian;
 
-    // Change the custody token authority from target peer to custodian.
-    let peer_seeds = &ctx.accounts.target_peer.seeds;
-    token::set_authority(
+    token::approve(
         CpiContext::new_with_signer(
             token_program.to_account_info(),
-            token::SetAuthority {
-                current_authority: ctx.accounts.target_peer.to_account_info(),
-                account_or_mint: dst_swap_token.to_account_info(),
+            token::Approve {
+                to: dst_swap_token.to_account_info(),
+                delegate: custodian.to_account_info(),
+                authority: swap_authority.to_account_info(),
             },
-            &[&[
-                Peer::SEED_PREFIX,
-                &peer_seeds.chain.to_be_bytes(),
-                &[peer_seeds.bump],
-            ]],
+            &[swap_authority_seeds],
         ),
-        token::spl_token::instruction::AuthorityType::AccountOwner,
-        custodian.key().into(),
+        usdc_amount_out,
     )?;
 
     // Prepare market order as custodian.
@@ -215,7 +256,7 @@ where
         CpiContext::new_with_signer(
             ctx.accounts.token_router_program.to_account_info(),
             token_router::cpi::accounts::PrepareMarketOrder {
-                payer: ctx.accounts.payer.to_account_info(),
+                payer: payer.to_account_info(),
                 custodian: token_router::cpi::accounts::CheckedCustodian {
                     custodian: ctx.accounts.token_router_custodian.to_account_info(),
                 },
@@ -249,18 +290,7 @@ where
         },
     )?;
 
-    let payer = &ctx.accounts.payer;
-
-    // Finally close swap token accounts.
-    token::close_account(CpiContext::new_with_signer(
-        token_program.to_account_info(),
-        token::CloseAccount {
-            account: ctx.accounts.src_swap_token.to_account_info(),
-            destination: payer.to_account_info(),
-            authority: swap_authority.to_account_info(),
-        },
-        &[swap_authority_seeds],
-    ))?;
+    // Finally close the destination swap token account.
     token::close_account(CpiContext::new_with_signer(
         token_program.to_account_info(),
         token::CloseAccount {

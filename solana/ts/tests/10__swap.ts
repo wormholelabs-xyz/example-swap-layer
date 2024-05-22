@@ -12,6 +12,7 @@ import { CctpTokenBurnMessage } from "@wormhole-foundation/example-liquidity-lay
 import {
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
+    Uint64,
 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import * as matchingEngineSdk from "@wormhole-foundation/example-liquidity-layer-solana/matchingEngine";
 import {
@@ -32,7 +33,7 @@ import {
     toUniversalAddress,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import { VaaAccount } from "@wormhole-foundation/example-liquidity-layer-solana/wormhole";
-import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
+import { Chain, ChainId, toChainId } from "@wormhole-foundation/sdk-base";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
 import { assert } from "chai";
 import * as fs from "fs";
@@ -40,6 +41,7 @@ import * as jupiterV6 from "../src/jupiterV6";
 import {
     OutputToken,
     RedeemMode,
+    RedeemOption,
     SwapLayerMessage,
     SwapLayerProgram,
     decodeSwapLayerMessage,
@@ -58,6 +60,11 @@ import {
     SlowOrderResponse,
 } from "@wormhole-foundation/example-liquidity-layer-definitions";
 
+const JUPITER_V6_LUT_ADDRESSES = [
+    new PublicKey("GxS6FiQ3mNnAar9HGQ6mxP7t6FcwmHkU7peSeQDUHmpN"),
+    new PublicKey("HsLPzBjqK3SUKQZwHdd2QHVc9cioPrsHNw9GcUDs7WL7"),
+];
+
 describe("Jupiter V6 Testing", () => {
     const connection = new Connection(LOCALHOST, "processed");
 
@@ -72,7 +79,12 @@ describe("Jupiter V6 Testing", () => {
     const tokenRouter = swapLayer.tokenRouterProgram();
     const matchingEngine = tokenRouter.matchingEngineProgram();
 
-    const luts: [PublicKey, PublicKey] = [PublicKey.default, PublicKey.default];
+    const luts: [PublicKey, PublicKey, PublicKey, PublicKey] = [
+        PublicKey.default,
+        PublicKey.default,
+        JUPITER_V6_LUT_ADDRESSES[0],
+        JUPITER_V6_LUT_ADDRESSES[1],
+    ];
 
     let testCctpNonce = 2n ** 64n - 1n;
 
@@ -203,6 +215,87 @@ describe("Jupiter V6 Testing", () => {
             const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
             assert.isTrue(dstBalanceAfter - dstBalanceBefore >= minAmountOut);
         }
+    });
+
+    describe("Initiate Swap Exact In", function () {
+        it("USDT In, USDC Direct Out", async function () {
+            const srcMint = USDT_MINT_ADDRESS;
+
+            const {
+                stagedOutbound,
+                stagedCustodyToken,
+                custodyBalance: inAmount,
+                stagedOutboundInfo,
+                targetPeer,
+            } = await stageOutboundForTest({
+                payer: payer.publicKey,
+                senderToken: splToken.getAssociatedTokenAddressSync(srcMint, payer.publicKey),
+                srcMint,
+            });
+
+            const preparedOrder = PublicKey.findProgramAddressSync(
+                [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
+                swapLayer.ID,
+            )[0];
+
+            const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+            const {
+                instruction,
+                sourceToken: srcSwapToken,
+                destinationToken: dstSwapToken,
+                sourceMint,
+                destinationMint,
+                minAmountOut,
+            } = modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
+                inAmount,
+                quotedOutAmount: inAmount, // stable swap
+                slippageBps: 50,
+                cpi: true,
+            });
+            assert.deepEqual(sourceMint, srcMint);
+            assert.deepEqual(destinationMint, swapLayer.usdcMint);
+
+            const { usdcRefundToken, preparedBy } = stagedOutboundInfo;
+
+            const ix = await swapLayer.program.methods
+                .initiateSwapExactIn(instruction.data)
+                .accounts({
+                    payer: payer.publicKey,
+                    custodian: swapLayer.checkedCustodianComposite(),
+                    preparedBy,
+                    stagedOutbound,
+                    stagedCustodyToken,
+                    usdcRefundToken,
+                    targetPeer: swapLayer.registeredPeerComposite({ peer: targetPeer }),
+                    preparedOrder,
+                    swapAuthority,
+                    srcSwapToken,
+                    dstSwapToken,
+                    srcMint,
+                    usdc: swapLayer.usdcComposite(),
+                    tokenRouterCustodian: tokenRouter.custodianAddress(),
+                    preparedCustodyToken: tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+                    tokenRouterProgram: tokenRouter.ID,
+                    associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
+                    tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                    systemProgram: SystemProgram.programId,
+                })
+                .remainingAccounts(instruction.keys)
+                .instruction();
+
+            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+                units: 360_000,
+            });
+
+            const addressLookupTableAccounts = await Promise.all(
+                luts.map(async (lookupTableAddress) => {
+                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                    return resp.value;
+                }),
+            );
+
+            await expectIxOk(connection, [computeIx, ix], [payer], { addressLookupTableAccounts });
+        });
     });
 
     describe("Complete Swap -- Direct", function () {
@@ -979,6 +1072,69 @@ describe("Jupiter V6 Testing", () => {
             burnMessage,
             encodedCctpMessage,
             cctpAttestation,
+        };
+    }
+
+    async function stageOutboundForTest(
+        accounts: {
+            payer: PublicKey;
+            senderToken: PublicKey;
+            srcMint: PublicKey;
+        },
+        opts: {
+            amountIn?: bigint;
+            redeemOption?:
+                | { relay: { gasDropoff: number; maxRelayerFee: Uint64 } }
+                | { payload: Uint8Array | Buffer }
+                | null;
+            outputToken?: OutputToken | null;
+        } = {},
+    ) {
+        const stagedOutboundSigner = Keypair.generate();
+        const stagedOutbound = stagedOutboundSigner.publicKey;
+
+        let { amountIn, redeemOption, outputToken } = opts;
+        amountIn ??= 690000n;
+        redeemOption ??= null;
+        outputToken ??= null;
+
+        const { owner: sender } = await splToken.getAccount(connection, accounts.senderToken);
+        const usdcRefundToken = splToken.getAssociatedTokenAddressSync(swapLayer.usdcMint, sender);
+
+        const [approveIx, ix] = await swapLayer.stageOutboundIx(
+            {
+                ...accounts,
+                stagedOutbound,
+                usdcRefundToken,
+            },
+            {
+                transferType: "sender",
+                amountIn,
+                targetChain: toChainId("Ethereum"),
+                recipient: Array.from(Buffer.alloc(32, "deadbeef")),
+                redeemOption,
+                outputToken,
+            },
+        );
+        assert.isNull(approveIx);
+
+        await expectIxOk(connection, [ix], [payer, stagedOutboundSigner]);
+
+        const stagedCustodyToken = swapLayer.stagedCustodyTokenAddress(stagedOutbound);
+        const { amount: custodyBalance } = await splToken.getAccount(
+            connection,
+            stagedCustodyToken,
+        );
+
+        const { info: stagedOutboundInfo } = await swapLayer.fetchStagedOutbound(stagedOutbound);
+        const targetPeer = swapLayer.peerAddress(stagedOutboundInfo.targetChain as ChainId);
+
+        return {
+            stagedOutbound,
+            stagedCustodyToken,
+            custodyBalance,
+            stagedOutboundInfo,
+            targetPeer,
         };
     }
 });
