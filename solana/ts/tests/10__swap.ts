@@ -17,6 +17,7 @@ import {
     LiquidityLayerDeposit,
     LiquidityLayerMessage,
     Uint64,
+    uint64ToBigInt,
 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import * as matchingEngineSdk from "@wormhole-foundation/example-liquidity-layer-solana/matchingEngine";
 import {
@@ -36,18 +37,23 @@ import {
     postLiquidityLayerVaa,
     toUniversalAddress,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
+import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
 import { VaaAccount } from "@wormhole-foundation/example-liquidity-layer-solana/wormhole";
 import { Chain, ChainId, toChainId } from "@wormhole-foundation/sdk-base";
-import { toUniversal } from "@wormhole-foundation/sdk-definitions";
+import { UniversalAddress, toUniversal } from "@wormhole-foundation/sdk-definitions";
 import { assert } from "chai";
 import * as fs from "fs";
 import * as jupiterV6 from "../src/jupiterV6";
 import {
     OutputToken,
     RedeemMode,
+    StagedOutboundInfo,
     SwapLayerMessage,
     SwapLayerProgram,
+    calculateRelayerFee,
     decodeSwapLayerMessage,
+    denormalizeGasDropOff,
+    encodeOutputToken,
     encodeSwapLayerMessage,
     localnet,
 } from "../src/swapLayer";
@@ -218,8 +224,8 @@ describe("Jupiter V6 Testing", () => {
         }
     });
 
-    describe("Initiate Swap Exact In", function () {
-        it("USDT In, USDC Direct Out", async function () {
+    describe("USDC Transfer (Relay)", function () {
+        it("Outbound (USDT via Whirlpool)", async function () {
             const srcMint = USDT_MINT_ADDRESS;
 
             const {
@@ -227,28 +233,32 @@ describe("Jupiter V6 Testing", () => {
                 stagedCustodyToken,
                 custodyBalance: inAmount,
                 stagedOutboundInfo,
-                targetPeer,
-            } = await stageOutboundForTest({
-                payer: payer.publicKey,
-                senderToken: splToken.getAssociatedTokenAddressSync(
+                redeemMode,
+                outputToken,
+            } = await stageOutboundForTest(
+                {
+                    payer: payer.publicKey,
+                    senderToken: splToken.getAssociatedTokenAddressSync(
+                        srcMint,
+                        payer.publicKey,
+                        false,
+                        await whichTokenProgram(connection, srcMint),
+                    ),
                     srcMint,
-                    payer.publicKey,
-                    false,
-                    await whichTokenProgram(connection, srcMint),
-                ),
-                srcMint,
-            });
+                },
+                {
+                    redeemOption: {
+                        relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                    },
+                },
+            );
 
-            const preparedOrder = PublicKey.findProgramAddressSync(
-                [Buffer.from("prepared-order"), stagedOutbound.toBuffer()],
-                swapLayer.ID,
-            )[0];
-
+            const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
             const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
             const {
-                instruction,
-                sourceToken: srcSwapToken,
-                destinationToken: dstSwapToken,
+                instruction: cpiInstruction,
+                sourceToken,
+                destinationToken,
                 sourceMint,
                 destinationMint,
                 minAmountOut,
@@ -261,34 +271,169 @@ describe("Jupiter V6 Testing", () => {
             assert.deepEqual(sourceMint, srcMint);
             assert.deepEqual(destinationMint, swapLayer.usdcMint);
 
-            const { usdcRefundToken, preparedBy } = stagedOutboundInfo;
+            {
+                const accInfos = await connection.getMultipleAccountsInfo([
+                    sourceToken,
+                    destinationToken,
+                ]);
+                assert.isTrue(accInfos.every((info) => info === null));
+            }
 
-            const ix = await swapLayer.program.methods
-                .initiateSwapExactIn(instruction.data)
-                .accounts({
+            const ix = await swapLayer.initiateSwapExactInIx(
+                {
                     payer: payer.publicKey,
-                    custodian: swapLayer.checkedCustodianComposite(),
-                    preparedBy,
+                    stagedOutbound,
+                    srcMint,
+                },
+                {
+                    cpiInstruction,
+                },
+            );
+
+            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+                units: 360_000,
+            });
+
+            const addressLookupTableAccounts = await Promise.all(
+                luts.map(async (lookupTableAddress) => {
+                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                    return resp.value;
+                }),
+            );
+
+            await expectIxOk(connection, [computeIx, ix], [payer], {
+                addressLookupTableAccounts,
+            });
+
+            {
+                const accInfos = await connection.getMultipleAccountsInfo([
+                    sourceToken,
+                    destinationToken,
                     stagedOutbound,
                     stagedCustodyToken,
-                    usdcRefundToken,
-                    targetPeer: swapLayer.registeredPeerComposite({ peer: targetPeer }),
-                    preparedOrder,
-                    swapAuthority,
-                    srcSwapToken,
-                    dstSwapToken,
+                ]);
+                assert.isTrue(accInfos.every((info) => info === null));
+            }
+
+            const { targetChain, usdcRefundToken, recipient } = stagedOutboundInfo;
+            const { address: redeemer } = await swapLayer.fetchPeer(targetChain as ChainId);
+
+            // Verify the relevant information in the prepared order.
+            const preparedOrderData = await tokenRouter.fetchPreparedOrder(preparedOrder);
+
+            const { info } = preparedOrderData;
+            assert.deepEqual(
+                preparedOrderData,
+                new tokenRouterSdk.PreparedOrder(
+                    {
+                        orderSender: swapLayer.custodianAddress(),
+                        preparedBy: payer.publicKey,
+                        orderType: {
+                            market: {
+                                minAmountOut: null,
+                            },
+                        },
+                        srcToken: destinationToken,
+                        refundToken: usdcRefundToken,
+                        targetChain,
+                        redeemer,
+                        preparedCustodyTokenBump: info.preparedCustodyTokenBump,
+                    },
+                    Buffer.from(
+                        encodeSwapLayerMessage({
+                            recipient: new UniversalAddress(Uint8Array.from(recipient)),
+                            redeemMode,
+                            outputToken,
+                        }),
+                    ),
+                ),
+            );
+
+            // Verify the prepared custody token balance.
+            const { amount: preparedCustodyTokenBalance } = await splToken.getAccount(
+                connection,
+                tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+            );
+            assert.isTrue(preparedCustodyTokenBalance >= minAmountOut);
+            console.log(preparedCustodyTokenBalance, minAmountOut);
+        });
+
+        describe("Inbound", function () {
+            const emittedEvents: EmittedFilledLocalFastOrder[] = [];
+            let listenerId: number | null;
+
+            before("Start Event Listener", async function () {
+                listenerId = matchingEngine.onFilledLocalFastOrder((event, slot, signature) => {
+                    emittedEvents.push({ event, slot, signature });
+                });
+            });
+
+            after("Stop Event Listener", async function () {
+                if (listenerId !== null) {
+                    matchingEngine.program.removeEventListener(listenerId!);
+                }
+            });
+        });
+    });
+
+    describe("USDC Transfer (Direct)", function () {
+        it("Outbound (USDT via Whirlpool)", async function () {
+            const srcMint = USDT_MINT_ADDRESS;
+
+            const {
+                stagedOutbound,
+                stagedCustodyToken,
+                custodyBalance: inAmount,
+                stagedOutboundInfo,
+                redeemMode,
+                outputToken,
+            } = await stageOutboundForTest({
+                payer: payer.publicKey,
+                senderToken: splToken.getAssociatedTokenAddressSync(
                     srcMint,
-                    usdc: swapLayer.usdcComposite(),
-                    tokenRouterCustodian: tokenRouter.custodianAddress(),
-                    preparedCustodyToken: tokenRouter.preparedCustodyTokenAddress(preparedOrder),
-                    tokenRouterProgram: tokenRouter.ID,
-                    associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
-                    srcTokenProgram: splToken.TOKEN_PROGRAM_ID,
-                    tokenProgram: splToken.TOKEN_PROGRAM_ID,
-                    systemProgram: SystemProgram.programId,
-                })
-                .remainingAccounts(instruction.keys)
-                .instruction();
+                    payer.publicKey,
+                    false,
+                    await whichTokenProgram(connection, srcMint),
+                ),
+                srcMint,
+            });
+
+            const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+            const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+            const {
+                instruction: cpiInstruction,
+                sourceToken,
+                destinationToken,
+                sourceMint,
+                destinationMint,
+                minAmountOut,
+            } = await modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
+                inAmount,
+                quotedOutAmount: inAmount, // stable swap
+                slippageBps: 50,
+                cpi: true,
+            });
+            assert.deepEqual(sourceMint, srcMint);
+            assert.deepEqual(destinationMint, swapLayer.usdcMint);
+
+            {
+                const accInfos = await connection.getMultipleAccountsInfo([
+                    sourceToken,
+                    destinationToken,
+                ]);
+                assert.isTrue(accInfos.every((info) => info === null));
+            }
+
+            const ix = await swapLayer.initiateSwapExactInIx(
+                {
+                    payer: payer.publicKey,
+                    stagedOutbound,
+                    srcMint,
+                },
+                {
+                    cpiInstruction,
+                },
+            );
 
             const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
                 units: 360_000,
@@ -302,162 +447,365 @@ describe("Jupiter V6 Testing", () => {
             );
 
             await expectIxOk(connection, [computeIx, ix], [payer], { addressLookupTableAccounts });
-        });
-    });
 
-    describe("Complete Swap -- Direct", function () {
-        const emittedEvents: EmittedFilledLocalFastOrder[] = [];
-        let listenerId: number | null;
-
-        before("Start Event Listener", async function () {
-            listenerId = matchingEngine.onFilledLocalFastOrder((event, slot, signature) => {
-                emittedEvents.push({ event, slot, signature });
-            });
-        });
-
-        after("Stop Event Listener", async function () {
-            if (listenerId !== null) {
-                matchingEngine.program.removeEventListener(listenerId!);
+            {
+                const accInfos = await connection.getMultipleAccountsInfo([
+                    sourceToken,
+                    destinationToken,
+                    stagedOutbound,
+                    stagedCustodyToken,
+                ]);
+                assert.isTrue(accInfos.every((info) => info === null));
             }
+
+            const { targetChain, usdcRefundToken, recipient } = stagedOutboundInfo;
+            const { address: redeemer } = await swapLayer.fetchPeer(targetChain as ChainId);
+
+            // Verify the relevant information in the prepared order.
+            const preparedOrderData = await tokenRouter.fetchPreparedOrder(preparedOrder);
+
+            const { info } = preparedOrderData;
+            assert.deepEqual(
+                preparedOrderData,
+                new tokenRouterSdk.PreparedOrder(
+                    {
+                        orderSender: swapLayer.custodianAddress(),
+                        preparedBy: payer.publicKey,
+                        orderType: {
+                            market: {
+                                minAmountOut: null,
+                            },
+                        },
+                        srcToken: destinationToken,
+                        refundToken: usdcRefundToken,
+                        targetChain,
+                        redeemer,
+                        preparedCustodyTokenBump: info.preparedCustodyTokenBump,
+                    },
+                    Buffer.from(
+                        encodeSwapLayerMessage({
+                            recipient: new UniversalAddress(Uint8Array.from(recipient)),
+                            redeemMode,
+                            outputToken,
+                        }),
+                    ),
+                ),
+            );
+
+            // Verify the prepared custody token balance.
+            const { amount: preparedCustodyTokenBalance } = await splToken.getAccount(
+                connection,
+                tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+            );
+            assert.isTrue(preparedCustodyTokenBalance >= minAmountOut);
+            console.log(preparedCustodyTokenBalance, minAmountOut);
         });
 
-        function newQuotedSwapOutputToken(opts: {
-            quotedAmountOut: bigint;
-            dstMint?: PublicKey | null;
-            slippageBps?: number;
-            deadline?: number;
-            dexProgramId?: PublicKey | null;
-        }) {
-            const { quotedAmountOut } = opts;
+        describe("Inbound", function () {
+            const emittedEvents: EmittedFilledLocalFastOrder[] = [];
+            let listenerId: number | null;
 
-            let { dstMint, slippageBps, deadline, dexProgramId } = opts;
-            dstMint ??= null;
-            slippageBps ??= 0;
-            deadline ??= 0;
-            dexProgramId ??= null;
-
-            const limitAmount = (quotedAmountOut * (10000n - BigInt(slippageBps))) / 10000n;
-            const swap = {
-                deadline,
-                limitAmount,
-                type: {
-                    id: "JupiterV6",
-                    dexProgramId:
-                        dexProgramId === null
-                            ? { isSome: false }
-                            : {
-                                  isSome: true,
-                                  address: toUniversal("Solana", dexProgramId.toString()),
-                              },
-                },
-            };
-            return {
-                limitAmount,
-                outputToken: (dstMint === null
-                    ? { type: "Gas", swap }
-                    : {
-                          type: "Other",
-                          address: toUniversal("Solana", dstMint.toString()),
-                          swap,
-                      }) as OutputToken,
-            };
-        }
-
-        it("Other -- USDT via Whirlpool", async function () {
-            const dstMint = USDT_MINT_ADDRESS;
-            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
-                quotedAmountOut: 198_800_000n,
-                dstMint,
-                slippageBps: 15,
+            before("Start Event Listener", async function () {
+                listenerId = matchingEngine.onFilledLocalFastOrder((event, slot, signature) => {
+                    emittedEvents.push({ event, slot, signature });
+                });
             });
 
-            const amountIn = 200_000_000n;
-            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
-                { payer: payer.publicKey },
-                emittedEvents,
-                {
-                    dstMint,
-                    outputToken,
-                    amountIn,
-                },
-            );
+            after("Stop Event Listener", async function () {
+                if (listenerId !== null) {
+                    matchingEngine.program.removeEventListener(listenerId!);
+                }
+            });
 
-            await completeSwapDirectForTest(
-                {
-                    payer: payer.publicKey,
-                    preparedFill,
-                    recipient,
+            it("Other (USDT) via Whirlpool", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
                     dstMint,
-                },
-                {
-                    limitAmount,
-                    swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
-                },
-            );
+                    slippageBps: 15,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Other (WSOL) via Phoenix V1", async function () {
+                const dstMint = splToken.NATIVE_MINT;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    dstMint,
+                    slippageBps: 150,
+                });
+
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Gas via Phoenix V1", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
         });
 
-        it("Other -- WSOL via Phoenix V1", async function () {
-            const dstMint = splToken.NATIVE_MINT;
-            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
-                quotedAmountOut: 2_000_000_000n,
-                dstMint,
-                slippageBps: 150,
+        describe("USDC Transfer (Payload)", function () {
+            it("Outbound (USDT via Whirlpool)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    stagedCustodyToken,
+                    custodyBalance: inAmount,
+                    stagedOutboundInfo,
+                    redeemMode,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            payload: Buffer.from("All your base are belong to us."),
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const {
+                    instruction: cpiInstruction,
+                    sourceToken,
+                    destinationToken,
+                    sourceMint,
+                    destinationMint,
+                    minAmountOut,
+                } = await modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
+                    inAmount,
+                    quotedOutAmount: inAmount, // stable swap
+                    slippageBps: 50,
+                    cpi: true,
+                });
+                assert.deepEqual(sourceMint, srcMint);
+                assert.deepEqual(destinationMint, swapLayer.usdcMint);
+
+                {
+                    const accInfos = await connection.getMultipleAccountsInfo([
+                        sourceToken,
+                        destinationToken,
+                    ]);
+                    assert.isTrue(accInfos.every((info) => info === null));
+                }
+
+                const ix = await swapLayer.initiateSwapExactInIx(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint,
+                    },
+                    {
+                        cpiInstruction,
+                    },
+                );
+
+                const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+                    units: 360_000,
+                });
+
+                const addressLookupTableAccounts = await Promise.all(
+                    luts.map(async (lookupTableAddress) => {
+                        const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                        return resp.value;
+                    }),
+                );
+
+                await expectIxOk(connection, [computeIx, ix], [payer], {
+                    addressLookupTableAccounts,
+                });
+
+                {
+                    const accInfos = await connection.getMultipleAccountsInfo([
+                        sourceToken,
+                        destinationToken,
+                        stagedOutbound,
+                        stagedCustodyToken,
+                    ]);
+                    assert.isTrue(accInfos.every((info) => info === null));
+                }
+
+                const { targetChain, usdcRefundToken, recipient } = stagedOutboundInfo;
+                const { address: redeemer } = await swapLayer.fetchPeer(targetChain as ChainId);
+
+                // Verify the relevant information in the prepared order.
+                const preparedOrderData = await tokenRouter.fetchPreparedOrder(preparedOrder);
+
+                const { info } = preparedOrderData;
+                assert.deepEqual(
+                    preparedOrderData,
+                    new tokenRouterSdk.PreparedOrder(
+                        {
+                            orderSender: swapLayer.custodianAddress(),
+                            preparedBy: payer.publicKey,
+                            orderType: {
+                                market: {
+                                    minAmountOut: null,
+                                },
+                            },
+                            srcToken: destinationToken,
+                            refundToken: usdcRefundToken,
+                            targetChain,
+                            redeemer,
+                            preparedCustodyTokenBump: info.preparedCustodyTokenBump,
+                        },
+                        Buffer.from(
+                            encodeSwapLayerMessage({
+                                recipient: new UniversalAddress(Uint8Array.from(recipient)),
+                                redeemMode,
+                                outputToken,
+                            }),
+                        ),
+                    ),
+                );
+
+                // Verify the prepared custody token balance.
+                const { amount: preparedCustodyTokenBalance } = await splToken.getAccount(
+                    connection,
+                    tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+                );
+                assert.isTrue(preparedCustodyTokenBalance >= minAmountOut);
             });
 
-            const amountIn = 300_000_000n;
-            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
-                { payer: payer.publicKey },
-                emittedEvents,
-                {
-                    dstMint,
-                    outputToken,
-                    amountIn,
-                },
-            );
+            describe("Inbound", function () {
+                const emittedEvents: EmittedFilledLocalFastOrder[] = [];
+                let listenerId: number | null;
 
-            await completeSwapDirectForTest(
-                {
-                    payer: payer.publicKey,
-                    preparedFill,
-                    recipient,
-                    dstMint,
-                },
-                {
-                    limitAmount,
-                    swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
-                },
-            );
-        });
+                before("Start Event Listener", async function () {
+                    listenerId = matchingEngine.onFilledLocalFastOrder((event, slot, signature) => {
+                        emittedEvents.push({ event, slot, signature });
+                    });
+                });
 
-        it("Gas via Phoenix V1", async function () {
-            const { limitAmount, outputToken } = newQuotedSwapOutputToken({
-                quotedAmountOut: 2_000_000_000n,
-                slippageBps: 150,
+                after("Stop Event Listener", async function () {
+                    if (listenerId !== null) {
+                        matchingEngine.program.removeEventListener(listenerId!);
+                    }
+                });
             });
-
-            const amountIn = 300_000_000n;
-            const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
-                { payer: payer.publicKey },
-                emittedEvents,
-                {
-                    outputToken,
-                    amountIn,
-                },
-            );
-
-            await completeSwapDirectForTest(
-                {
-                    payer: payer.publicKey,
-                    preparedFill,
-                    recipient,
-                },
-                {
-                    limitAmount,
-                    swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
-                },
-            );
         });
     });
+
+    function newQuotedSwapOutputToken(opts: {
+        quotedAmountOut: bigint;
+        dstMint?: PublicKey | null;
+        slippageBps?: number;
+        deadline?: number;
+        dexProgramId?: PublicKey | null;
+    }) {
+        const { quotedAmountOut } = opts;
+
+        let { dstMint, slippageBps, deadline, dexProgramId } = opts;
+        dstMint ??= null;
+        slippageBps ??= 0;
+        deadline ??= 0;
+        dexProgramId ??= null;
+
+        const limitAmount = (quotedAmountOut * (10000n - BigInt(slippageBps))) / 10000n;
+        const swap = {
+            deadline,
+            limitAmount,
+            type: {
+                id: "JupiterV6",
+                dexProgramId:
+                    dexProgramId === null
+                        ? { isSome: false }
+                        : {
+                              isSome: true,
+                              address: toUniversal("Solana", dexProgramId.toString()),
+                          },
+            },
+        };
+        return {
+            limitAmount,
+            outputToken: (dstMint === null
+                ? { type: "Gas", swap }
+                : {
+                      type: "Other",
+                      address: toUniversal("Solana", dstMint.toString()),
+                      swap,
+                  }) as OutputToken,
+        };
+    }
 
     async function completeSwapDirectForTest(
         accounts: {
@@ -1119,18 +1467,28 @@ describe("Jupiter V6 Testing", () => {
         },
         opts: {
             amountIn?: bigint;
+            targetChain?: ChainId;
             redeemOption?:
                 | { relay: { gasDropoff: number; maxRelayerFee: Uint64 } }
                 | { payload: Uint8Array | Buffer }
                 | null;
             outputToken?: OutputToken | null;
         } = {},
-    ) {
+    ): Promise<{
+        amountIn: bigint;
+        stagedOutbound: PublicKey;
+        stagedCustodyToken: PublicKey;
+        custodyBalance: bigint;
+        stagedOutboundInfo: StagedOutboundInfo;
+        redeemMode: RedeemMode;
+        outputToken: OutputToken;
+    }> {
         const stagedOutboundSigner = Keypair.generate();
         const stagedOutbound = stagedOutboundSigner.publicKey;
 
-        let { amountIn, redeemOption, outputToken } = opts;
+        let { amountIn, targetChain, redeemOption, outputToken } = opts;
         amountIn ??= 690000n;
+        targetChain ??= toChainId("Ethereum");
         redeemOption ??= null;
         outputToken ??= null;
 
@@ -1151,7 +1509,7 @@ describe("Jupiter V6 Testing", () => {
             {
                 transferType: "sender",
                 amountIn,
-                targetChain: toChainId("Ethereum"),
+                targetChain,
                 recipient: Array.from(Buffer.alloc(32, "deadbeef")),
                 redeemOption,
                 outputToken,
@@ -1168,14 +1526,46 @@ describe("Jupiter V6 Testing", () => {
         );
 
         const { info: stagedOutboundInfo } = await swapLayer.fetchStagedOutbound(stagedOutbound);
-        const targetPeer = swapLayer.peerAddress(stagedOutboundInfo.targetChain as ChainId);
+
+        // Fix output token if null.
+        outputToken = outputToken === null ? { type: "Usdc" } : outputToken;
+
+        const redeemMode = await (async (): Promise<RedeemMode> => {
+            if (redeemOption === null) {
+                return { mode: "Direct" };
+            } else if ("relay" in redeemOption) {
+                const { gasDropoff } = redeemOption.relay;
+
+                const { relayParams } = await swapLayer.fetchPeer(targetChain);
+                const expectedRelayerFee = calculateRelayerFee(
+                    relayParams,
+                    denormalizeGasDropOff(gasDropoff),
+                    outputToken,
+                );
+
+                return {
+                    mode: "Relay",
+                    gasDropoff,
+                    relayingFee: expectedRelayerFee,
+                };
+            } else if ("payload" in redeemOption) {
+                return {
+                    mode: "Payload",
+                    payload: redeemOption.payload,
+                };
+            } else {
+                throw new Error("Invalid redeem option");
+            }
+        })();
 
         return {
+            amountIn,
             stagedOutbound,
             stagedCustodyToken,
             custodyBalance,
             stagedOutboundInfo,
-            targetPeer,
+            redeemMode,
+            outputToken,
         };
     }
 });

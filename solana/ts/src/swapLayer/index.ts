@@ -197,18 +197,48 @@ export class SwapLayerProgram {
         )[0];
     }
 
-    swapAccounts(accounts: {
+    async swapAccounts(accounts: {
         preparedSource: PublicKey;
         sourceMint: PublicKey;
         destinationMint: PublicKey;
-    }) {
+        srcTokenProgram?: PublicKey;
+        dstTokenProgram?: PublicKey;
+    }): Promise<{
+        swapAuthority: PublicKey;
+        srcSwapToken: PublicKey;
+        dstSwapToken: PublicKey;
+        srcTokenProgram: PublicKey;
+        dstTokenProgram: PublicKey;
+    }> {
         const { preparedSource, sourceMint, destinationMint } = accounts;
 
-        const authority = this.swapAuthorityAddress(preparedSource);
+        let { srcTokenProgram, dstTokenProgram } = accounts;
+        if (srcTokenProgram === undefined) {
+            const accInfo = await this.connection().getAccountInfo(sourceMint);
+            srcTokenProgram = accInfo.owner;
+        }
+        if (dstTokenProgram === undefined) {
+            const accInfo = await this.connection().getAccountInfo(destinationMint);
+            dstTokenProgram = accInfo.owner;
+        }
+
+        const swapAuthority = this.swapAuthorityAddress(preparedSource);
         return {
-            authority,
-            srcSwapToken: splToken.getAssociatedTokenAddressSync(sourceMint, authority, true),
-            dstSwapToken: splToken.getAssociatedTokenAddressSync(destinationMint, authority, true),
+            swapAuthority,
+            srcSwapToken: splToken.getAssociatedTokenAddressSync(
+                sourceMint,
+                swapAuthority,
+                true,
+                srcTokenProgram,
+            ),
+            dstSwapToken: splToken.getAssociatedTokenAddressSync(
+                destinationMint,
+                swapAuthority,
+                true,
+                dstTokenProgram,
+            ),
+            srcTokenProgram,
+            dstTokenProgram,
         };
     }
 
@@ -630,6 +660,90 @@ export class SwapLayerProgram {
             .instruction();
     }
 
+    async initiateSwapExactInIx(
+        accounts: {
+            payer: PublicKey;
+            stagedOutbound: PublicKey;
+            stagedCustodyToken?: PublicKey;
+            preparedOrder?: PublicKey;
+            srcMint?: PublicKey;
+            srcTokenProgram?: PublicKey;
+            preparedBy?: PublicKey;
+            usdcRefundToken?: PublicKey;
+        },
+        args: {
+            cpiInstruction: TransactionInstruction;
+            targetChain?: ChainId;
+        },
+    ): Promise<TransactionInstruction> {
+        const { payer, stagedOutbound } = accounts;
+        const { cpiInstruction } = args;
+
+        let {
+            stagedCustodyToken,
+            preparedOrder,
+            srcMint,
+            srcTokenProgram,
+            preparedBy,
+            usdcRefundToken,
+        } = accounts;
+        srcMint ??= splToken.NATIVE_MINT;
+
+        let { targetChain } = args;
+        if (
+            targetChain === undefined ||
+            usdcRefundToken === undefined ||
+            preparedBy === undefined
+        ) {
+            const { info } = await this.fetchStagedOutbound(stagedOutbound);
+            targetChain ??= info.targetChain as ChainId;
+            usdcRefundToken ??= info.usdcRefundToken;
+            preparedBy ??= info.preparedBy;
+        }
+
+        preparedOrder ??= this.preparedOrderAddress(stagedOutbound);
+        stagedCustodyToken ??= this.stagedCustodyTokenAddress(stagedOutbound);
+
+        const swapAccounts = await this.swapAccounts({
+            preparedSource: preparedOrder,
+            sourceMint: srcMint,
+            destinationMint: this.usdcMint,
+            srcTokenProgram,
+            dstTokenProgram: splToken.TOKEN_PROGRAM_ID,
+        });
+        const { swapAuthority, srcSwapToken, dstSwapToken } = swapAccounts;
+        srcTokenProgram ??= swapAccounts.srcTokenProgram;
+
+        const tokenRouter = this.tokenRouterProgram();
+
+        return this.program.methods
+            .initiateSwapExactIn(cpiInstruction.data)
+            .accounts({
+                payer,
+                custodian: this.checkedCustodianComposite(),
+                preparedBy,
+                stagedOutbound,
+                stagedCustodyToken: this.stagedCustodyTokenAddress(stagedOutbound),
+                usdcRefundToken,
+                targetPeer: this.registeredPeerComposite({ chain: targetChain }),
+                preparedOrder,
+                swapAuthority,
+                srcSwapToken,
+                dstSwapToken,
+                srcMint,
+                usdc: this.usdcComposite(),
+                tokenRouterCustodian: tokenRouter.custodianAddress(),
+                preparedCustodyToken: tokenRouter.preparedCustodyTokenAddress(preparedOrder),
+                tokenRouterProgram: tokenRouter.ID,
+                associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
+                srcTokenProgram,
+                tokenProgram: splToken.TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+            })
+            .remainingAccounts(cpiInstruction.keys)
+            .instruction();
+    }
+
     async completeTransferRelayIx(
         accounts: {
             payer: PublicKey;
@@ -800,12 +914,15 @@ export class SwapLayerProgram {
         beneficiary ??= payer;
         dstMint ??= splToken.NATIVE_MINT;
 
-        if (dstTokenProgram === undefined) {
-            const accInfo = await this.connection().getAccountInfo(dstMint);
-            dstTokenProgram = accInfo.owner;
-        }
-
-        const swapAuthority = this.swapAuthorityAddress(preparedFill);
+        const swapAccounts = await this.swapAccounts({
+            preparedSource: preparedFill,
+            sourceMint: this.usdcMint,
+            destinationMint: dstMint,
+            srcTokenProgram: splToken.TOKEN_PROGRAM_ID,
+            dstTokenProgram,
+        });
+        const { swapAuthority, srcSwapToken, dstSwapToken } = swapAccounts;
+        dstTokenProgram ??= swapAccounts.dstTokenProgram;
 
         return this.program.methods
             .completeSwapDirect(cpiInstruction.data)
@@ -817,17 +934,8 @@ export class SwapLayerProgram {
                         beneficiary,
                     }),
                     authority: swapAuthority,
-                    srcSwapToken: splToken.getAssociatedTokenAddressSync(
-                        this.usdcMint,
-                        swapAuthority,
-                        true, // allowOwnerOffCurve
-                    ),
-                    dstSwapToken: splToken.getAssociatedTokenAddressSync(
-                        dstMint,
-                        swapAuthority,
-                        true, // allowOwnerOffCurve
-                        dstTokenProgram,
-                    ),
+                    srcSwapToken,
+                    dstSwapToken,
                     usdc: this.usdcComposite(),
                     dstMint,
                     associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
