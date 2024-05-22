@@ -355,7 +355,6 @@ describe("Jupiter V6 Testing", () => {
                 tokenRouter.preparedCustodyTokenAddress(preparedOrder),
             );
             assert.isTrue(preparedCustodyTokenBalance >= minAmountOut);
-            console.log(preparedCustodyTokenBalance, minAmountOut);
         });
 
         describe("Inbound", function () {
@@ -498,7 +497,6 @@ describe("Jupiter V6 Testing", () => {
                 tokenRouter.preparedCustodyTokenAddress(preparedOrder),
             );
             assert.isTrue(preparedCustodyTokenBalance >= minAmountOut);
-            console.log(preparedCustodyTokenBalance, minAmountOut);
         });
 
         describe("Inbound", function () {
