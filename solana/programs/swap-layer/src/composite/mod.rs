@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token, token};
+use anchor_spl::{associated_token, token, token_interface};
 use common::{
     admin::utils::{
         assistant::{self, only_authorized},
@@ -346,16 +346,17 @@ pub struct CompleteSwap<'info> {
         associated_token::mint = dst_mint,
         associated_token::authority = authority
     )]
-    pub dst_swap_token: Box<Account<'info, token::TokenAccount>>,
+    pub dst_swap_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     /// This account must be verified as the source mint for the swap.
     pub usdc: Usdc<'info>,
 
     /// This account must be verified as the destination mint for the swap.
     #[account(constraint = usdc.key() != dst_mint.key() @ SwapLayerError::SameMint)]
-    pub dst_mint: Box<Account<'info, token::Mint>>,
+    pub dst_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     pub token_program: Program<'info, token::Token>,
+    pub dst_token_program: Interface<'info, token_interface::TokenInterface>,
     associated_token_program: Program<'info, associated_token::AssociatedToken>,
     system_program: Program<'info, System>,
 }
@@ -399,7 +400,7 @@ impl<'info> CompleteSwap<'info> {
         ))?;
 
         token::close_account(CpiContext::new_with_signer(
-            self.token_program.to_account_info(),
+            self.dst_token_program.to_account_info(),
             token::CloseAccount {
                 account: self.dst_swap_token.to_account_info(),
                 destination,

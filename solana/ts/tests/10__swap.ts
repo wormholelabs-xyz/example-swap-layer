@@ -8,6 +8,10 @@ import {
     SystemProgram,
     TransactionInstruction,
 } from "@solana/web3.js";
+import {
+    FastMarketOrder,
+    SlowOrderResponse,
+} from "@wormhole-foundation/example-liquidity-layer-definitions";
 import { CctpTokenBurnMessage } from "@wormhole-foundation/example-liquidity-layer-solana/cctp";
 import {
     LiquidityLayerDeposit,
@@ -41,7 +45,6 @@ import * as jupiterV6 from "../src/jupiterV6";
 import {
     OutputToken,
     RedeemMode,
-    RedeemOption,
     SwapLayerMessage,
     SwapLayerProgram,
     decodeSwapLayerMessage,
@@ -54,11 +57,8 @@ import {
     USDT_MINT_ADDRESS,
     createLut,
     tryNativeToUint8Array,
+    whichTokenProgram,
 } from "./helpers";
-import {
-    FastMarketOrder,
-    SlowOrderResponse,
-} from "@wormhole-foundation/example-liquidity-layer-definitions";
 
 const JUPITER_V6_LUT_ADDRESSES = [
     new PublicKey("GxS6FiQ3mNnAar9HGQ6mxP7t6FcwmHkU7peSeQDUHmpN"),
@@ -99,12 +99,18 @@ describe("Jupiter V6 Testing", () => {
                 for (let i = 0; i < 8; ++i) {
                     const authority = jupiterV6.programAuthorityAddress(i);
 
-                    await splToken.getOrCreateAssociatedTokenAccount(
+                    await expectIxOk(
                         connection,
-                        payer,
-                        mint,
-                        authority,
-                        true, // allowOwnerOffCurve
+                        [
+                            splToken.createAssociatedTokenAccountIdempotentInstruction(
+                                payer.publicKey,
+                                splToken.getAssociatedTokenAddressSync(mint, authority, true),
+                                authority,
+                                mint,
+                                splToken.TOKEN_PROGRAM_ID,
+                            ),
+                        ],
+                        [payer],
                     );
                 }
             }
@@ -112,6 +118,8 @@ describe("Jupiter V6 Testing", () => {
             const payerWsol = splToken.getAssociatedTokenAddressSync(
                 splToken.NATIVE_MINT,
                 payer.publicKey,
+                false,
+                splToken.TOKEN_PROGRAM_ID,
             );
 
             await expectIxOk(
@@ -122,13 +130,14 @@ describe("Jupiter V6 Testing", () => {
                         payerWsol,
                         payer.publicKey,
                         splToken.NATIVE_MINT,
+                        splToken.TOKEN_PROGRAM_ID,
                     ),
                     SystemProgram.transfer({
                         fromPubkey: payer.publicKey,
                         toPubkey: payerWsol,
                         lamports: 2_000_000_000_000n,
                     }),
-                    splToken.createSyncNativeInstruction(payerWsol),
+                    splToken.createSyncNativeInstruction(payerWsol, splToken.TOKEN_PROGRAM_ID),
                 ],
                 [payer],
             );
@@ -153,43 +162,35 @@ describe("Jupiter V6 Testing", () => {
         });
 
         it("User Swap USDC to USDT From Simulated Quote -- Whirlpool", async function () {
-            await invokeSharedAccountsRouteAsUser(
-                modifyUsdcToUsdtSwapResponseForTest(payer.publicKey, {
-                    inAmount: 100_000_000n,
-                    quotedOutAmount: 100_000_000n,
-                    slippageBps: 50,
-                }),
-            );
+            await modifyUsdcToUsdtSwapResponseForTest(payer.publicKey, {
+                inAmount: 100_000_000n,
+                quotedOutAmount: 100_000_000n,
+                slippageBps: 50,
+            }).then(invokeSharedAccountsRouteAsUser);
         });
 
         it("User Swap USDT to USDC From Simulated Quote -- Whirlpool", async function () {
-            await invokeSharedAccountsRouteAsUser(
-                modifyUsdtToUsdcSwapResponseForTest(payer.publicKey, {
-                    inAmount: 50_000_000n,
-                    quotedOutAmount: 50_000_000n,
-                    slippageBps: 50,
-                }),
-            );
+            await modifyUsdtToUsdcSwapResponseForTest(payer.publicKey, {
+                inAmount: 50_000_000n,
+                quotedOutAmount: 50_000_000n,
+                slippageBps: 50,
+            }).then(invokeSharedAccountsRouteAsUser);
         });
 
         it("User Swap USDC to WSOL From Simulated Quote -- Phoenix V1", async function () {
-            await invokeSharedAccountsRouteAsUser(
-                modifyUsdcToWsolSwapResponseForTest(payer.publicKey, {
-                    inAmount: 150_000_000n,
-                    quotedOutAmount: 1_000_000_000n,
-                    slippageBps: 200,
-                }),
-            );
+            await modifyUsdcToWsolSwapResponseForTest(payer.publicKey, {
+                inAmount: 150_000_000n,
+                quotedOutAmount: 1_000_000_000n,
+                slippageBps: 200,
+            }).then(invokeSharedAccountsRouteAsUser);
         });
 
         it("User Swap WSOL to USDC From Simulated Quote -- Phoenix V1", async function () {
-            await invokeSharedAccountsRouteAsUser(
-                modifyWsolToUsdcSwapResponseForTest(payer.publicKey, {
-                    inAmount: 1_000_000_000n,
-                    quotedOutAmount: 150_000_000n,
-                    slippageBps: 200,
-                }),
-            );
+            await modifyWsolToUsdcSwapResponseForTest(payer.publicKey, {
+                inAmount: 1_000_000_000n,
+                quotedOutAmount: 150_000_000n,
+                slippageBps: 200,
+            }).then(invokeSharedAccountsRouteAsUser);
         });
 
         async function invokeSharedAccountsRouteAsUser(
@@ -229,7 +230,12 @@ describe("Jupiter V6 Testing", () => {
                 targetPeer,
             } = await stageOutboundForTest({
                 payer: payer.publicKey,
-                senderToken: splToken.getAssociatedTokenAddressSync(srcMint, payer.publicKey),
+                senderToken: splToken.getAssociatedTokenAddressSync(
+                    srcMint,
+                    payer.publicKey,
+                    false,
+                    await whichTokenProgram(connection, srcMint),
+                ),
                 srcMint,
             });
 
@@ -246,7 +252,7 @@ describe("Jupiter V6 Testing", () => {
                 sourceMint,
                 destinationMint,
                 minAmountOut,
-            } = modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
+            } = await modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
                 inAmount,
                 quotedOutAmount: inAmount, // stable swap
                 slippageBps: 50,
@@ -277,6 +283,7 @@ describe("Jupiter V6 Testing", () => {
                     preparedCustodyToken: tokenRouter.preparedCustodyTokenAddress(preparedOrder),
                     tokenRouterProgram: tokenRouter.ID,
                     associatedTokenProgram: splToken.ASSOCIATED_TOKEN_PROGRAM_ID,
+                    srcTokenProgram: splToken.TOKEN_PROGRAM_ID,
                     tokenProgram: splToken.TOKEN_PROGRAM_ID,
                     systemProgram: SystemProgram.programId,
                 })
@@ -464,13 +471,13 @@ describe("Jupiter V6 Testing", () => {
             swapResponseModifier: (
                 tokenOwner: PublicKey,
                 opts: jupiterV6.ModifySharedAccountsRouteOpts,
-            ) => jupiterV6.ModifiedSharedAccountsRoute;
+            ) => Promise<jupiterV6.ModifiedSharedAccountsRoute>;
         },
     ): Promise<undefined> {
         const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts);
         const { limitAmount, swapResponseModifier } = otherOpts;
 
-        const { instruction: cpiInstruction, destinationMint } = swapResponseModifier(
+        const { instruction: cpiInstruction, destinationMint } = await swapResponseModifier(
             swapLayer.swapAuthorityAddress(accounts.preparedFill),
             {
                 cpi: true,
@@ -518,6 +525,8 @@ describe("Jupiter V6 Testing", () => {
             const dstToken = splToken.getAssociatedTokenAddressSync(
                 expectedDstMint,
                 accounts.recipient,
+                false,
+                await whichTokenProgram(connection, expectedDstMint),
             );
             const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
 
@@ -559,7 +568,13 @@ describe("Jupiter V6 Testing", () => {
         };
 
         // Generate a new token account for recipient.
-        const recipientToken = splToken.getAssociatedTokenAddressSync(dstMint, recipient);
+        const tokenProgram = await whichTokenProgram(connection, dstMint);
+        const recipientToken = splToken.getAssociatedTokenAddressSync(
+            dstMint,
+            recipient,
+            false,
+            tokenProgram,
+        );
 
         await expectIxOk(
             connection,
@@ -569,6 +584,7 @@ describe("Jupiter V6 Testing", () => {
                     recipientToken,
                     recipient,
                     dstMint,
+                    tokenProgram,
                 ),
             ],
             [payer],
@@ -616,56 +632,76 @@ describe("Jupiter V6 Testing", () => {
         return { preparedFill, recipient };
     }
 
-    function modifyUsdcToUsdtSwapResponseForTest(
+    async function modifyUsdcToUsdtSwapResponseForTest(
         tokenOwner: PublicKey,
         opts: jupiterV6.ModifySharedAccountsRouteOpts,
-    ): jupiterV6.ModifiedSharedAccountsRoute {
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/whirlpool_usdc_to_usdt.json`, {
                 encoding: "utf-8",
             }),
         );
 
-        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
     }
 
-    function modifyUsdtToUsdcSwapResponseForTest(
+    async function modifyUsdtToUsdcSwapResponseForTest(
         tokenOwner: PublicKey,
         opts: jupiterV6.ModifySharedAccountsRouteOpts,
-    ): jupiterV6.ModifiedSharedAccountsRoute {
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/whirlpool_usdt_to_usdc.json`, {
                 encoding: "utf-8",
             }),
         );
 
-        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
     }
 
-    function modifyUsdcToWsolSwapResponseForTest(
+    async function modifyUsdcToWsolSwapResponseForTest(
         tokenOwner: PublicKey,
         opts: jupiterV6.ModifySharedAccountsRouteOpts,
-    ): jupiterV6.ModifiedSharedAccountsRoute {
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/phoenix_v1_usdc_to_wsol.json`, {
                 encoding: "utf-8",
             }),
         );
 
-        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
     }
 
-    function modifyWsolToUsdcSwapResponseForTest(
+    async function modifyWsolToUsdcSwapResponseForTest(
         tokenOwner: PublicKey,
         opts: jupiterV6.ModifySharedAccountsRouteOpts,
-    ): jupiterV6.ModifiedSharedAccountsRoute {
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/phoenix_v1_wsol_to_usdc.json`, {
                 encoding: "utf-8",
             }),
         );
 
-        return jupiterV6.modifySharedAccountsRouteInstruction(response, tokenOwner, opts);
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
     }
 
     type PrepareOrderResponseForTestOptionalOpts = {
@@ -1099,7 +1135,12 @@ describe("Jupiter V6 Testing", () => {
         outputToken ??= null;
 
         const { owner: sender } = await splToken.getAccount(connection, accounts.senderToken);
-        const usdcRefundToken = splToken.getAssociatedTokenAddressSync(swapLayer.usdcMint, sender);
+        const usdcRefundToken = splToken.getAssociatedTokenAddressSync(
+            swapLayer.usdcMint,
+            sender,
+            false,
+            splToken.TOKEN_PROGRAM_ID,
+        );
 
         const [approveIx, ix] = await swapLayer.stageOutboundIx(
             {

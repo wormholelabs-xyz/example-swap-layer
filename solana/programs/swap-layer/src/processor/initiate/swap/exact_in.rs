@@ -5,7 +5,7 @@ use crate::{
     PREPARED_ORDER_SEED_PREFIX,
 };
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token, token};
+use anchor_spl::{associated_token, token, token_interface};
 use common::wormhole_io::TypePrefixedPayload;
 
 #[derive(Accounts)]
@@ -90,7 +90,7 @@ pub struct InitiateSwapExactIn<'info> {
         associated_token::mint = src_mint,
         associated_token::authority = swap_authority
     )]
-    src_swap_token: Box<Account<'info, token::TokenAccount>>,
+    src_swap_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     /// Temporary swap token account to receive destination mint after the swap. This account will
     /// be closed at the end of this instruction.
@@ -104,7 +104,7 @@ pub struct InitiateSwapExactIn<'info> {
 
     /// This account must be verified as the source mint for the swap.
     #[account(address = staged_custody_token.mint)]
-    src_mint: Box<Account<'info, token::Mint>>,
+    src_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     /// This account must be verified as the destination mint for the swap.
     #[account(constraint = src_mint.key() != usdc.key() @ SwapLayerError::SameMint)]
@@ -119,6 +119,7 @@ pub struct InitiateSwapExactIn<'info> {
 
     token_router_program: Program<'info, token_router::program::TokenRouter>,
     associated_token_program: Program<'info, associated_token::AssociatedToken>,
+    src_token_program: Interface<'info, token_interface::TokenInterface>,
     token_program: Program<'info, token::Token>,
     system_program: Program<'info, System>,
 }
