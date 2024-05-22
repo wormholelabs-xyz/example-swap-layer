@@ -476,6 +476,7 @@ export class SwapLayerProgram {
             senderToken?: PublicKey | null;
             programTransferAuthority?: PublicKey | null;
             srcMint?: PublicKey;
+            srcTokenProgram?: PublicKey;
             peer?: PublicKey;
         },
         args: {
@@ -493,8 +494,12 @@ export class SwapLayerProgram {
         const { payer, stagedOutbound, usdcRefundToken, peer } = accounts;
         const { transferType, amountIn, redeemOption: inputRedeemOption, outputToken } = args;
 
-        let { sender, senderToken, programTransferAuthority, srcMint } = accounts;
+        let { sender, senderToken, programTransferAuthority, srcMint, srcTokenProgram } = accounts;
         srcMint ??= transferType === "native" ? splToken.NATIVE_MINT : this.usdcMint;
+        if (srcTokenProgram === undefined) {
+            const accInfo = await this.connection().getAccountInfo(srcMint);
+            srcTokenProgram = accInfo.owner;
+        }
 
         const redeemOption = ((): RedeemOption | null => {
             if (inputRedeemOption === null) {
@@ -564,6 +569,7 @@ export class SwapLayerProgram {
             stagedCustodyToken: this.stagedCustodyTokenAddress(stagedOutbound),
             usdcRefundToken,
             srcMint,
+            srcTokenProgram,
             tokenProgram: splToken.TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
         };
