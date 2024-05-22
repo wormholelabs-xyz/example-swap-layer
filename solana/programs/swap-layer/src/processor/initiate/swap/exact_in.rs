@@ -131,7 +131,7 @@ pub fn initiate_swap_exact_in<'a, 'b, 'c, 'info>(
 where
     'c: 'info,
 {
-    let token_program = &ctx.accounts.token_program;
+    let src_token_program = &ctx.accounts.src_token_program;
     let custody_token = &ctx.accounts.staged_custody_token;
 
     let peer = &ctx.accounts.target_peer;
@@ -141,23 +141,25 @@ where
         &[peer.seeds.bump],
     ];
 
-    // TODO: transfer from custody to src swap token. Close here too?
-    token::transfer(
+    let src_mint = &ctx.accounts.src_mint;
+    token_interface::transfer_checked(
         CpiContext::new_with_signer(
-            token_program.to_account_info(),
-            token::Transfer {
+            src_token_program.to_account_info(),
+            token_interface::TransferChecked {
                 from: custody_token.to_account_info(),
                 to: ctx.accounts.src_swap_token.to_account_info(),
                 authority: peer.to_account_info(),
+                mint: src_mint.to_account_info(),
             },
             &[peer_signer_seeds],
         ),
         custody_token.amount,
+        src_mint.decimals,
     )?;
 
-    token::close_account(CpiContext::new_with_signer(
-        token_program.to_account_info(),
-        token::CloseAccount {
+    token_interface::close_account(CpiContext::new_with_signer(
+        src_token_program.to_account_info(),
+        token_interface::CloseAccount {
             account: custody_token.to_account_info(),
             destination: ctx.accounts.prepared_by.to_account_info(),
             authority: peer.to_account_info(),
@@ -226,9 +228,9 @@ where
     let payer = &ctx.accounts.payer;
 
     // Close the source swap token account.
-    token::close_account(CpiContext::new_with_signer(
-        token_program.to_account_info(),
-        token::CloseAccount {
+    token_interface::close_account(CpiContext::new_with_signer(
+        src_token_program.to_account_info(),
+        token_interface::CloseAccount {
             account: ctx.accounts.src_swap_token.to_account_info(),
             destination: payer.to_account_info(),
             authority: swap_authority.to_account_info(),
@@ -236,6 +238,7 @@ where
         &[swap_authority_seeds],
     ))?;
 
+    let token_program = &ctx.accounts.token_program;
     let dst_swap_token = &ctx.accounts.dst_swap_token;
     let custodian = &ctx.accounts.custodian;
 
