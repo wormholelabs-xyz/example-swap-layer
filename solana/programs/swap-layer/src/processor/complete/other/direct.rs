@@ -1,6 +1,6 @@
 use crate::{composite::*, error::SwapLayerError};
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token, token};
+use anchor_spl::{associated_token, token, token_interface};
 use swap_layer_messages::{
     messages::SwapMessageV1,
     types::{JupiterV6SwapParameters, OutputSwap, OutputToken, RedeemMode, SwapType},
@@ -222,25 +222,31 @@ where
             );
         }
 
+        let dst_mint = &ctx.accounts.complete_swap.dst_mint;
+
         // Transfer destination tokens to recipient.
-        token::transfer(
+        token_interface::transfer_checked(
             CpiContext::new_with_signer(
-                ctx.accounts.complete_swap.token_program.to_account_info(),
-                token::Transfer {
+                ctx.accounts
+                    .complete_swap
+                    .dst_token_program
+                    .to_account_info(),
+                token_interface::TransferChecked {
                     from: ctx.accounts.complete_swap.dst_swap_token.to_account_info(),
                     to: ctx.accounts.recipient_token.to_account_info(),
                     authority: swap_authority.to_account_info(),
+                    mint: dst_mint.to_account_info(),
                 },
                 &[swap_authority_seeds],
             ),
             amount_out,
+            dst_mint.decimals,
         )?;
     }
 
     // NOTE: If the output token is gas, lamports reflecting the WSOL amount will be transferred to
     // the recipient's account.
-    ctx.accounts.complete_swap.close_swap_accounts(
-        &ctx.bumps.complete_swap,
-        ctx.accounts.recipient.to_account_info(),
-    )
+    ctx.accounts
+        .complete_swap
+        .close_swap_accounts(&ctx.bumps.complete_swap, recipient)
 }

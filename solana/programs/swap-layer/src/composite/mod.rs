@@ -210,37 +210,95 @@ impl<'info> ConsumeSwapLayerFill<'info> {
         SwapMessageV1::read_slice(&self.fill.redeemer_message).unwrap()
     }
 
-    // pub fn read_message_unchecked_boxed(&self) -> Box<SwapMessageV1> {
-    //     SwapMessageV1::read_slice(&self.fill.redeemer_message)
-    //         .map(Box::new)
-    //         .unwrap()
-    // }
-
     pub fn prepared_fill_key(&self) -> Pubkey {
         self.fill.key()
     }
 
     pub fn consume_prepared_fill(
         &self,
-        dst_token: AccountInfo<'info>,
-        token_program: AccountInfo<'info>,
+        dst_token: &AccountInfo<'info>,
+        token_program: &AccountInfo<'info>,
     ) -> Result<u64> {
-        let amount = self.fill_custody_token.amount;
-
         token_router::cpi::consume_prepared_fill(CpiContext::new_with_signer(
             self.token_router_program.to_account_info(),
             token_router::cpi::accounts::ConsumePreparedFill {
                 redeemer: self.custodian.to_account_info(),
                 beneficiary: self.beneficiary.to_account_info(),
                 prepared_fill: self.fill.to_account_info(),
-                dst_token,
+                dst_token: dst_token.to_account_info(),
                 prepared_custody_token: self.fill_custody_token.to_account_info(),
-                token_program,
+                token_program: token_program.to_account_info(),
             },
             &[Custodian::SIGNER_SEEDS],
         ))?;
 
-        Ok(amount)
+        // Because the destination token account could have already been created already, someone
+        // have sent some arbitrary amount to it. If this token account is meant to be closed
+        // sometime after invoking this method, we want to make sure the amount we return will
+        // reflect however much exists on the token account after consuming the prepared fill.
+        let dst_token =
+            token::TokenAccount::try_deserialize_unchecked(&mut dst_token.data.borrow().as_ref())?;
+        Ok(dst_token.amount)
+    }
+
+    /// Ensure that the output token is a swap token for Jupiter V6. If swap is not encoded, we
+    /// allow the recipient to perform the swap himself in a direct transfer.
+    ///
+    /// NOTE: The recipient must be equal to the payer if OutputToken::Usdc! This check is not
+    /// performed here, but should be performed with the account context composing with this
+    /// composite.
+    pub fn is_valid_output_swap(
+        &self,
+        dst_mint: &InterfaceAccount<'info, token_interface::Mint>,
+    ) -> Result<bool> {
+        let swap_msg = self.read_message_unchecked();
+        let (expected_dst_mint, swap) = match &swap_msg.output_token {
+            OutputToken::Usdc => {
+                require!(
+                    matches!(swap_msg.redeem_mode, RedeemMode::Direct),
+                    SwapLayerError::InvalidRedeemMode,
+                );
+
+                (Default::default(), None)
+            }
+            OutputToken::Gas(swap) => (token::spl_token::native_mint::id(), swap.into()),
+            OutputToken::Other { address, swap } => (Pubkey::from(*address), swap.into()),
+        };
+
+        if let Some(swap) = swap {
+            // Verify the address matches the destination mint.
+            require_keys_eq!(
+                dst_mint.key(),
+                expected_dst_mint,
+                SwapLayerError::InvalidDestinationMint
+            );
+
+            let OutputSwap {
+                limit_amount,
+                deadline,
+                swap_type,
+            } = swap;
+
+            require!(
+                matches!(swap_type, SwapType::JupiterV6(_)),
+                SwapLayerError::InvalidSwapType,
+            );
+
+            // Check the deadline for the swap. There may not be a deadline check with the
+            // dex that this instruction composes with, so we will check it here.
+            //
+            // TODO: Do we accept deadline == 0?
+            require!(
+                *deadline == 0 || Clock::get().unwrap().unix_timestamp <= i64::from(*deadline),
+                SwapLayerError::SwapPastDeadline,
+            );
+
+            // Just in case the encoded limit amount exceeds u64, we have nothing to do if
+            // this message were misconfigured.
+            u64::try_from(*limit_amount).map_err(|_| SwapLayerError::InvalidLimitAmount)?;
+        }
+
+        Ok(true)
     }
 }
 
@@ -257,66 +315,8 @@ pub struct CompleteSwap<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    #[account(
-        constraint = {
-            let swap_msg = consume_swap_layer_fill.read_message_unchecked();
-
-            // Ensure that the output token is a swap token for Jupiter V6. If swap is not encoded,
-            // we allow the recipient to perform the swap himself in a direct transfer.
-            //
-            // NOTE: The recipient must be equal to the payer if OutputToken::Usdc! This check is
-            // not performed here, but should be performed with the account context composing with
-            // this composite.
-            let (expected_dst_mint, swap) = match &swap_msg.output_token {
-                OutputToken::Usdc => {
-                    require!(
-                        matches!(swap_msg.redeem_mode, RedeemMode::Direct),
-                        SwapLayerError::InvalidRedeemMode,
-                    );
-
-                    (Default::default(), None)
-                },
-                OutputToken::Gas(swap) => (token::spl_token::native_mint::id(), swap.into()),
-                OutputToken::Other { address, swap } => (Pubkey::from(*address), swap.into()),
-            };
-
-            if let Some(swap) = swap {
-                // Verify the address matches the destination mint.
-                require_keys_eq!(
-                    dst_mint.key(),
-                    expected_dst_mint,
-                    SwapLayerError::InvalidDestinationMint
-                );
-
-                let OutputSwap {
-                    limit_amount,
-                    deadline,
-                    swap_type,
-                } = swap;
-
-                require!(
-                    matches!(swap_type, SwapType::JupiterV6(_)),
-                    SwapLayerError::InvalidSwapType,
-                );
-
-                // Check the deadline for the swap. There may not be a deadline check with the
-                // dex that this instruction composes with, so we will check it here.
-                //
-                // TODO: Do we accept deadline == 0?
-                require!(
-                    *deadline == 0 || Clock::get().unwrap().unix_timestamp <= i64::from(*deadline),
-                    SwapLayerError::SwapPastDeadline,
-                );
-
-                // Just in case the encoded limit amount exceeds u64, we have nothing to do if
-                // this message were misconfigured.
-                u64::try_from(*limit_amount).map_err(|_| SwapLayerError::InvalidLimitAmount)?;
-            }
-
-            true
-        }
-    )]
-    pub consume_swap_layer_fill: ConsumeSwapLayerFill<'info>,
+    #[account(constraint = consume_swap_layer_fill.is_valid_output_swap(&dst_mint)?)]
+    consume_swap_layer_fill: ConsumeSwapLayerFill<'info>,
 
     /// CHECK: Seeds must be \["swap-authority", prepared_fill.key()\].
     #[account(
@@ -334,7 +334,8 @@ pub struct CompleteSwap<'info> {
         init_if_needed,
         payer = payer,
         associated_token::mint = usdc,
-        associated_token::authority = authority
+        associated_token::authority = authority,
+        associated_token::token_program = token_program
     )]
     pub src_swap_token: Box<Account<'info, token::TokenAccount>>,
 
@@ -353,7 +354,10 @@ pub struct CompleteSwap<'info> {
     pub usdc: Usdc<'info>,
 
     /// This account must be verified as the destination mint for the swap.
-    #[account(constraint = usdc.key() != dst_mint.key() @ SwapLayerError::SameMint)]
+    #[account(
+        token::token_program = dst_token_program,
+        constraint = usdc.key() != dst_mint.key() @ SwapLayerError::SameMint
+    )]
     pub dst_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     pub token_program: Program<'info, token::Token>,
@@ -363,25 +367,19 @@ pub struct CompleteSwap<'info> {
 }
 
 impl<'info> CompleteSwap<'info> {
+    pub fn custodian(&self) -> &CheckedCustodian<'info> {
+        &self.consume_swap_layer_fill.custodian
+    }
+
     pub fn consume_prepared_fill(&mut self) -> Result<u64> {
-        // Consume prepared fill.
-        self.consume_swap_layer_fill.consume_prepared_fill(
-            self.src_swap_token.to_account_info(),
-            self.token_program.to_account_info(),
-        )?;
-
-        // Because the source swap account is an ATA, someone could create this account and sent some
-        // arbitrary amount to it to disrupt the flow of this instruction. To be safe, we will reload
-        // the source swap token account to grab its amount.
-        self.src_swap_token.reload()?;
-
-        Ok(self.src_swap_token.amount)
+        self.consume_swap_layer_fill
+            .consume_prepared_fill(self.src_swap_token.as_ref().as_ref(), &self.token_program)
     }
 
     pub fn close_swap_accounts(
         &self,
         bumps: &CompleteSwapBumps,
-        destination: AccountInfo<'info>,
+        destination: &AccountInfo<'info>,
     ) -> Result<()> {
         let prepared_key = self.prepared_fill_key();
         let swap_authority_seeds = &[
@@ -400,11 +398,11 @@ impl<'info> CompleteSwap<'info> {
             &[swap_authority_seeds],
         ))?;
 
-        token::close_account(CpiContext::new_with_signer(
+        token_interface::close_account(CpiContext::new_with_signer(
             self.dst_token_program.to_account_info(),
-            token::CloseAccount {
+            token_interface::CloseAccount {
                 account: self.dst_swap_token.to_account_info(),
-                destination,
+                destination: destination.to_account_info(),
                 authority: self.authority.to_account_info(),
             },
             &[swap_authority_seeds],

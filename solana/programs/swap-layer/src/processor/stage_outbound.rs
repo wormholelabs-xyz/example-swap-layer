@@ -99,6 +99,7 @@ pub struct StageOutbound<'info> {
     usdc_refund_token: Box<Account<'info, token::TokenAccount>>,
 
     /// Mint can either be USDC or whichever mint is used to swap into USDC.
+    #[account(token::token_program = src_token_program)]
     src_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     src_token_program: Interface<'info, token_interface::TokenInterface>,

@@ -34,7 +34,7 @@ pub struct CompleteSwapRelay<'info> {
 
     #[account(
         mut,
-        address = complete_swap.consume_swap_layer_fill.custodian.fee_recipient_token,
+        address = complete_swap.custodian().fee_recipient_token,
     )]
     fee_recipient_token: Account<'info, token::TokenAccount>,
 }
@@ -287,6 +287,6 @@ where
     // the recipient's account.
     ctx.accounts.complete_swap.close_swap_accounts(
         &ctx.bumps.complete_swap,
-        ctx.accounts.recipient.to_account_info(),
+        &ctx.accounts.recipient.to_account_info(),
     )
 }
