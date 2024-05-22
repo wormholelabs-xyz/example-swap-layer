@@ -34,7 +34,10 @@ pub struct CompleteTransferPayload<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space = try_compute_staged_inbound_size(&consume_swap_layer_fill.read_message_unchecked())?,
+        space = StagedInbound::try_compute_size_if_needed(
+            staged_inbound,
+            consume_swap_layer_fill.read_message_unchecked()
+        )?,
         seeds = [
             StagedInbound::SEED_PREFIX,
             consume_swap_layer_fill.prepared_fill_key().as_ref(),
@@ -95,18 +98,6 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
     }
 
     Ok(())
-}
-
-fn try_compute_staged_inbound_size(swap_msg: &SwapMessageV1) -> Result<usize> {
-    // Match on Payload redeem type.
-    match &swap_msg.redeem_mode {
-        RedeemMode::Payload(payload) => {
-            let payload_size = payload.len();
-            StagedInbound::checked_compute_size(payload_size)
-                .ok_or(error!(SwapLayerError::PayloadTooLarge))
-        }
-        _ => Err(SwapLayerError::InvalidRedeemMode.into()),
-    }
 }
 
 fn get_swap_message_payload(swap_msg: &SwapMessageV1) -> Result<&[u8]> {

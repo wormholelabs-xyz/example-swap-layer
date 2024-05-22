@@ -344,7 +344,8 @@ pub struct CompleteSwap<'info> {
         init_if_needed,
         payer = payer,
         associated_token::mint = dst_mint,
-        associated_token::authority = authority
+        associated_token::authority = authority,
+        associated_token::token_program = dst_token_program
     )]
     pub dst_swap_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
