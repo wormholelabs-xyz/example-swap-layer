@@ -77,7 +77,7 @@ where
 
     // Handle the relayer fee and gas dropoff. Override the relaying fee to zero
     // if the payer is the recipient (self redemption).
-    let in_amount = if payer.key() != recipient.key() && relaying_fee > 0 {
+    let (in_amount, gas_dropoff) = if payer.key() != recipient.key() && relaying_fee > 0 {
         // Transfer eligible USDC to the fee recipient.
         anchor_spl::token::transfer(
             CpiContext::new_with_signer(
@@ -96,11 +96,14 @@ where
             relaying_fee,
         )?;
 
-        fill_amount
-            .checked_sub(relaying_fee)
-            .ok_or(SwapLayerError::InvalidRelayerFee)?
+        (
+            fill_amount
+                .checked_sub(relaying_fee)
+                .ok_or(SwapLayerError::InvalidRelayerFee)?,
+            gas_dropoff.into(),
+        )
     } else {
-        fill_amount
+        (fill_amount, None)
     };
 
     complete_swap_jup_v6(
@@ -112,6 +115,6 @@ where
         swap_msg,
         &ctx.accounts.recipient,
         &ctx.accounts.recipient_token,
-        gas_dropoff.into(),
+        gas_dropoff,
     )
 }
