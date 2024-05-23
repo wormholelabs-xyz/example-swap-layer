@@ -76,10 +76,7 @@ describe("Jupiter V6 Testing", () => {
     const connection = new Connection(LOCALHOST, "processed");
 
     const payer = PAYER_KEYPAIR;
-    const relayer = Keypair.generate();
-    const owner = OWNER_KEYPAIR;
-    const ownerAssistant = OWNER_ASSISTANT_KEYPAIR;
-    const feeUpdater = FEE_UPDATER_KEYPAIR;
+    const testRecipient = Keypair.generate();
 
     // Program SDKs
     const swapLayer = new SwapLayerProgram(connection, localnet(), USDC_MINT_ADDRESS);
@@ -142,6 +139,11 @@ describe("Jupiter V6 Testing", () => {
                     SystemProgram.transfer({
                         fromPubkey: payer.publicKey,
                         toPubkey: payerWsol,
+                        lamports: 2_000_000_000_000n,
+                    }),
+                    SystemProgram.transfer({
+                        fromPubkey: payer.publicKey,
+                        toPubkey: testRecipient.publicKey,
                         lamports: 2_000_000_000_000n,
                     }),
                     splToken.createSyncNativeInstruction(payerWsol, splToken.TOKEN_PROGRAM_ID),
@@ -413,6 +415,216 @@ describe("Jupiter V6 Testing", () => {
                         denormGasDropoff: denormalizeGasDropOff(gasDropoff),
                         swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
                     },
+                );
+            });
+
+            it("Other (USDT) via Whirlpool (Self Redeem)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 690000n; // .69 USDC
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        recipient: testRecipient.publicKey,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                // Use recipient as the payer.
+                await completeSwapRelayForTest(
+                    {
+                        payer: recipient,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                    },
+                    { signers: [testRecipient] },
+                );
+            });
+
+            it("Other (WSOL) via Phoenix V1", async function () {
+                const dstMint = splToken.NATIVE_MINT;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    dstMint,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 690000n; // .69 USDC
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Other (WSOL) via Phoenix V1 (Self Redeem)", async function () {
+                const dstMint = splToken.NATIVE_MINT;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    dstMint,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 690000n; // .69 USDC
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        recipient: testRecipient.publicKey,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: recipient,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                    { signers: [testRecipient] },
+                );
+            });
+
+            it("Gas via Phoenix V1", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 690000n; // .69 USDC
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Gas via Phoenix V1 (Self Redeem)", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 690000n; // .69 USDC
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        recipient: testRecipient.publicKey,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                    false,
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: recipient,
+                        preparedFill,
+                        recipient,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                    { signers: [testRecipient] },
                 );
             });
         });
@@ -946,8 +1158,9 @@ describe("Jupiter V6 Testing", () => {
                 opts: jupiterV6.ModifySharedAccountsRouteOpts,
             ) => Promise<jupiterV6.ModifiedSharedAccountsRoute>;
         },
+        overrides?: { signers: Signer[] },
     ): Promise<undefined> {
-        const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts);
+        const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts, overrides);
         const { limitAmount, relayingFee, denormGasDropoff, swapResponseModifier } = otherOpts;
 
         const { instruction: cpiInstruction, destinationMint } = await swapResponseModifier(
@@ -1034,13 +1247,11 @@ describe("Jupiter V6 Testing", () => {
             assert.fail("Invalid output token type");
         }
 
-        if (!selfRedeem) {
-            const { amount: feeRecipientAfter } = await splToken.getAccount(
-                connection,
-                feeRecipientToken,
-            );
-            assert.equal(feeRecipientAfter, feeRecipientBefore + relayingFee);
-        }
+        const { amount: feeRecipientAfter } = await splToken.getAccount(
+            connection,
+            feeRecipientToken,
+        );
+        assert.equal(feeRecipientAfter - feeRecipientBefore, selfRedeem ? 0 : relayingFee);
     }
 
     async function redeemSwapLayerFastFillForTest(
@@ -1052,6 +1263,7 @@ describe("Jupiter V6 Testing", () => {
             redeemMode?: RedeemMode;
             outputToken?: OutputToken;
         },
+        createRecipientAta = true,
     ) {
         let { dstMint, recipient, redeemMode, outputToken } = opts;
         dstMint ??= splToken.NATIVE_MINT;
@@ -1071,26 +1283,28 @@ describe("Jupiter V6 Testing", () => {
 
         // Generate a new token account for recipient.
         const tokenProgram = await whichTokenProgram(connection, dstMint);
-        const recipientToken = splToken.getAssociatedTokenAddressSync(
-            dstMint,
-            recipient,
-            false,
-            tokenProgram,
-        );
+        if (createRecipientAta) {
+            const recipientToken = splToken.getAssociatedTokenAddressSync(
+                dstMint,
+                recipient,
+                false,
+                tokenProgram,
+            );
 
-        await expectIxOk(
-            connection,
-            [
-                splToken.createAssociatedTokenAccountInstruction(
-                    payer.publicKey,
-                    recipientToken,
-                    recipient,
-                    dstMint,
-                    tokenProgram,
-                ),
-            ],
-            [payer],
-        );
+            await expectIxOk(
+                connection,
+                [
+                    splToken.createAssociatedTokenAccountInstruction(
+                        payer.publicKey,
+                        recipientToken,
+                        recipient,
+                        dstMint,
+                        tokenProgram,
+                    ),
+                ],
+                [payer],
+            );
+        }
 
         const msg = {
             recipient: toUniversal("Solana", recipient.toString()),
