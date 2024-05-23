@@ -84,8 +84,8 @@ where
             .consume_swap_layer_fill
             .read_message_unchecked();
 
-        let recipient_payload = match &mut swap_msg.redeem_mode {
-            RedeemMode::Payload(payload) => std::mem::take(payload),
+        let (sender, recipient_payload) = match &mut swap_msg.redeem_mode {
+            RedeemMode::Payload { sender, buf } => (*sender, std::mem::take(buf)),
             _ => return Err(SwapLayerError::InvalidRedeemMode.into()),
         };
 
@@ -98,6 +98,7 @@ where
                 custody_token: ctx.accounts.dst_swap_token.key(),
                 staged_by: ctx.accounts.payer.key(),
                 source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
+                sender,
                 recipient: swap_msg.recipient.into(),
                 is_native: matches!(swap_msg.output_token, OutputToken::Gas(_)),
             },

@@ -99,7 +99,7 @@ impl StagedOutbound {
             recipient: info.recipient,
             redeem_mode: match staged_redeem {
                 StagedRedeem::Direct => Default::default(),
-                StagedRedeem::Payload(payload) => payload.into(),
+                StagedRedeem::Payload(payload) => (info.sender.to_bytes(), payload).into(),
                 StagedRedeem::Relay {
                     gas_dropoff,
                     relaying_fee,

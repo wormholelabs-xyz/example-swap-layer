@@ -171,10 +171,10 @@ mod test {
 
     #[test]
     pub fn test_swap_message_v1_usdc_payload() {
-        let encoded_fill = hex!("01f00f0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a002b010000000000000000000000006ca6d1e2d5347bfab1d91e883f1915560e09129d0100000004deadbeef00");
+        let encoded_fill = hex!("01f00f0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000f62849f9a0b5bf2913b396098f7c7019b51a820a004b010000000000000000000000006ca6d1e2d5347bfab1d91e883f1915560e09129d0100000000000000000000000000000000000000000000000000000000000ba5ed00000004deadbeef00");
 
         let redeemer_message =
-            hex!("010000000000000000000000006ca6d1e2d5347bfab1d91e883f1915560e09129d0100000004deadbeef00");
+            hex!("010000000000000000000000006ca6d1e2d5347bfab1d91e883f1915560e09129d0100000000000000000000000000000000000000000000000000000000000ba5ed00000004deadbeef00");
 
         let fill = liquidity_layer_messages::Fill::read_slice(&encoded_fill).unwrap();
         assert_eq!(
@@ -194,7 +194,12 @@ mod test {
             swap_message,
             SwapMessageV1 {
                 recipient: hex!("0000000000000000000000006ca6d1e2d5347bfab1d91e883f1915560e09129d"),
-                redeem_mode: RedeemMode::Payload(hex!("deadbeef").to_vec()),
+                redeem_mode: RedeemMode::Payload {
+                    sender: hex!(
+                        "00000000000000000000000000000000000000000000000000000000000ba5ed"
+                    ),
+                    buf: hex!("deadbeef").to_vec()
+                },
                 output_token: OutputToken::Usdc,
             }
         );

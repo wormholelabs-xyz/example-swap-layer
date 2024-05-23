@@ -19,7 +19,10 @@ use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
 pub enum RedeemMode {
     #[default]
     Direct,
-    Payload(Vec<u8>),
+    Payload {
+        sender: [u8; 32],
+        buf: Vec<u8>,
+    },
     Relay {
         gas_dropoff: u32,
         relaying_fee: crate::types::Uint48,
@@ -34,8 +37,9 @@ impl RedeemMode {
     pub fn written_size(&self) -> usize {
         match self {
             Self::Direct => 1,
-            Self::Payload(payload) => payload.len().saturating_add(
+            Self::Payload { sender: _, buf } => buf.len().saturating_add(
                 1 // discriminant
+                + 32 // sender
                 + 4, // payload len
             ),
             Self::Relay { .. } => {
@@ -60,9 +64,9 @@ impl TryFrom<(u32, u64)> for RedeemMode {
     }
 }
 
-impl From<Vec<u8>> for RedeemMode {
-    fn from(payload: Vec<u8>) -> Self {
-        Self::Payload(payload)
+impl From<([u8; 32], Vec<u8>)> for RedeemMode {
+    fn from((sender, buf): ([u8; 32], Vec<u8>)) -> Self {
+        Self::Payload { sender, buf }
     }
 }
 
@@ -74,9 +78,10 @@ impl Readable for RedeemMode {
     {
         match u8::read(reader)? {
             Self::DIRECT => Ok(Self::Direct),
-            Self::PAYLOAD => Ok(Self::Payload(
-                WriteableBytes::<u32>::read(reader).map(Into::into)?,
-            )),
+            Self::PAYLOAD => Ok(Self::Payload {
+                sender: Readable::read(reader)?,
+                buf: WriteableBytes::<u32>::read(reader).map(Into::into)?,
+            }),
             Self::RELAY => Ok(Self::Relay {
                 gas_dropoff: Readable::read(reader)?,
                 relaying_fee: Readable::read(reader)?,
@@ -96,14 +101,12 @@ impl Writeable for RedeemMode {
     {
         match self {
             Self::Direct => Self::DIRECT.write(writer),
-            Self::Payload(payload) => {
+            Self::Payload { sender, buf } => {
                 Self::PAYLOAD.write(writer)?;
+                sender.write(writer)?;
 
-                let writeable = unsafe_writeable_bytes_ref(payload);
-
-                // Check whether length can be encoded.
-                writeable.try_encoded_len()?;
-                writeable.write(writer)
+                // NOTE: WriteableBytes<T> performs a length check.
+                unsafe_writeable_bytes_ref(buf).write(writer)
             }
             Self::Relay {
                 gas_dropoff,

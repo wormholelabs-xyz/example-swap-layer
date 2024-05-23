@@ -119,9 +119,12 @@ pub fn initiate_transfer(ctx: Context<InitiateTransfer>) -> Result<()> {
             },
             output_token,
         },
-        StagedRedeem::Payload(payload) => SwapMessageV1 {
+        StagedRedeem::Payload(buf) => SwapMessageV1 {
             recipient: staged_outbound.info.recipient,
-            redeem_mode: RedeemMode::Payload(payload),
+            redeem_mode: RedeemMode::Payload {
+                sender: staged_outbound.info.sender.to_bytes(),
+                buf,
+            },
             output_token,
         },
     };
