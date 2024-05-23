@@ -31,8 +31,6 @@ pub struct ReleaseInbound<'info> {
     dst_token: UncheckedAccount<'info>,
 
     /// Staged custody token account. This account will be closed at the end of this instruction.
-    ///
-    /// CHECK: Mutable. Seeds must be \["staged-custody-token"\].
     #[account(
         mut,
         address = staged_inbound.custody_token,
