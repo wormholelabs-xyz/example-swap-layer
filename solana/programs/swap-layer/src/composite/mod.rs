@@ -386,6 +386,7 @@ pub fn complete_swap<'a, 'b, 'c, 'info>(
     swap_message: SwapMessageV1,
     recipient: &AccountInfo<'info>,
     recipient_token: &AccountInfo<'info>,
+    gas_dropoff: Option<u64>,
 ) -> Result<()>
 where
     'c: 'info,
@@ -422,6 +423,7 @@ where
                 Default::default(),
                 recipient,
                 recipient_token,
+                gas_dropoff,
             )
         }
         OutputToken::Gas(OutputSwap {
@@ -438,6 +440,7 @@ where
             true,
             recipient,
             recipient_token,
+            gas_dropoff,
         ),
         OutputToken::Other {
             address: _,
@@ -457,6 +460,7 @@ where
             false,
             recipient,
             recipient_token,
+            gas_dropoff,
         ),
         _ => err!(SwapLayerError::InvalidOutputToken),
     }
@@ -473,6 +477,7 @@ fn handle_complete_swap_direct_jup_v6<'info>(
     is_native: bool,
     recipient: &AccountInfo<'info>,
     recipient_token: &AccountInfo<'info>,
+    gas_dropoff: Option<u64>,
 ) -> Result<()> {
     let swap_authority = &complete_swap.authority;
 
@@ -603,7 +608,9 @@ fn handle_complete_swap_direct_jup_v6<'info>(
                     to: recipient.to_account_info(),
                 },
             ),
-            amount_out,
+            amount_out
+                .checked_add(gas_dropoff.unwrap_or_default())
+                .ok_or(SwapLayerError::U64Overflow)?,
         )
     } else {
         // Verify that the encoded owner is the actual owner. ATAs are no different from other token
@@ -633,7 +640,7 @@ fn handle_complete_swap_direct_jup_v6<'info>(
             amount_out,
         )?;
 
-        // Finally close the destination swap token account.
+        // Close the destination swap token account.
         token_interface::close_account(CpiContext::new_with_signer(
             complete_swap.dst_token_program.to_account_info(),
             token_interface::CloseAccount {
@@ -642,7 +649,22 @@ fn handle_complete_swap_direct_jup_v6<'info>(
                 authority: complete_swap.authority.to_account_info(),
             },
             &[swap_authority_seeds],
-        ))
+        ))?;
+
+        // If there is a gas dropoff, transfer it to the recipient.
+        match gas_dropoff {
+            Some(gas_dropoff) if gas_dropoff > 0 => system_program::transfer(
+                CpiContext::new(
+                    complete_swap.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: payer.to_account_info(),
+                        to: recipient.to_account_info(),
+                    },
+                ),
+                gas_dropoff,
+            ),
+            _ => Ok(()),
+        }
     }
 }
 

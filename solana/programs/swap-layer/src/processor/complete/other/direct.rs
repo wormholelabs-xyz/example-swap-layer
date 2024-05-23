@@ -57,6 +57,7 @@ where
             swap_msg,
             &ctx.accounts.recipient,
             &ctx.accounts.recipient_token,
+            Default::default(),
         ),
         _ => err!(SwapLayerError::InvalidRedeemMode),
     }

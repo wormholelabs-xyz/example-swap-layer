@@ -77,47 +77,48 @@ where
 
     // Handle the relayer fee and gas dropoff. Override the relaying fee to zero
     // if the payer is the recipient (self redemption).
-    let in_amount = {
-        if payer.key() == recipient.key() {
-            fill_amount
-        } else {
-            if gas_dropoff > 0 {
-                anchor_lang::system_program::transfer(
-                    CpiContext::new(
-                        ctx.accounts.complete_swap.system_program.to_account_info(),
-                        anchor_lang::system_program::Transfer {
-                            from: payer.to_account_info(),
-                            to: recipient.to_account_info(),
-                        },
-                    ),
-                    gas_dropoff,
-                )?;
-            }
+    let (in_amount, gas_dropoff) = if payer.key() == recipient.key() {
+        (fill_amount, None)
+    } else {
+        if gas_dropoff > 0 {
+            anchor_lang::system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.complete_swap.system_program.to_account_info(),
+                    anchor_lang::system_program::Transfer {
+                        from: payer.to_account_info(),
+                        to: recipient.to_account_info(),
+                    },
+                ),
+                gas_dropoff,
+            )?;
+        }
 
-            if relaying_fee > 0 {
-                // Transfer eligible USDC to the fee recipient.
-                anchor_spl::token::transfer(
-                    CpiContext::new_with_signer(
-                        ctx.accounts.complete_swap.token_program.to_account_info(),
-                        anchor_spl::token::Transfer {
-                            from: ctx.accounts.complete_swap.src_swap_token.to_account_info(),
-                            to: ctx.accounts.fee_recipient_token.to_account_info(),
-                            authority: ctx.accounts.complete_swap.authority.to_account_info(),
-                        },
-                        &[&[
-                            crate::SWAP_AUTHORITY_SEED_PREFIX,
-                            ctx.accounts.complete_swap.prepared_fill_key().as_ref(),
-                            &[ctx.bumps.complete_swap.authority],
-                        ]],
-                    ),
-                    relaying_fee,
-                )?;
-            }
+        if relaying_fee > 0 {
+            // Transfer eligible USDC to the fee recipient.
+            anchor_spl::token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.complete_swap.token_program.to_account_info(),
+                    anchor_spl::token::Transfer {
+                        from: ctx.accounts.complete_swap.src_swap_token.to_account_info(),
+                        to: ctx.accounts.fee_recipient_token.to_account_info(),
+                        authority: ctx.accounts.complete_swap.authority.to_account_info(),
+                    },
+                    &[&[
+                        crate::SWAP_AUTHORITY_SEED_PREFIX,
+                        ctx.accounts.complete_swap.prepared_fill_key().as_ref(),
+                        &[ctx.bumps.complete_swap.authority],
+                    ]],
+                ),
+                relaying_fee,
+            )?;
+        }
 
+        (
             fill_amount
                 .checked_sub(relaying_fee)
-                .ok_or(SwapLayerError::InvalidRelayerFee)?
-        }
+                .ok_or(SwapLayerError::InvalidRelayerFee)?,
+            gas_dropoff.into(),
+        )
     };
 
     let complete_swap_ctx = Context::new(
@@ -134,5 +135,6 @@ where
         swap_msg,
         &ctx.accounts.recipient,
         &ctx.accounts.recipient_token,
+        gas_dropoff,
     )
 }
