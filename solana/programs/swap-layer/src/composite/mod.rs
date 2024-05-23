@@ -232,11 +232,11 @@ impl<'info> ConsumeSwapLayerFill<'info> {
             &[Custodian::SIGNER_SEEDS],
         ))?;
 
-        // Because the destination token account could have already been created already, someone
-        // have sent some arbitrary amount to it. If this token account is meant to be closed
-        // sometime after invoking this method, we want to make sure the amount we return will
-        // reflect however much exists on the token account after consuming the prepared fill.
-        token::TokenAccount::try_deserialize_unchecked(&mut dst_token.data.borrow().as_ref())
+        // Because the destination token account could have been created already, someone can send
+        // some arbitrary amount to it. If this token account is meant to be closed sometime after
+        // invoking this method, we want to make sure the amount we return will reflect however much
+        // exists in the token account after consuming the prepared fill.
+        token::TokenAccount::try_deserialize_unchecked(&mut &dst_token.data.borrow()[..])
             .map(|token| token.amount)
     }
 
@@ -366,11 +366,9 @@ pub struct HandleCompleteSwap<'ctx, 'info> {
     pub authority: &'ctx AccountInfo<'info>,
     pub src_swap_token: &'ctx Account<'info, token::TokenAccount>,
     pub dst_swap_token: &'ctx InterfaceAccount<'info, token_interface::TokenAccount>,
-    pub usdc: &'ctx Usdc<'info>,
     pub dst_mint: &'ctx UncheckedAccount<'info>,
     pub token_program: &'ctx Program<'info, token::Token>,
     pub dst_token_program: &'ctx Interface<'info, token_interface::TokenInterface>,
-    pub associated_token_program: &'ctx Program<'info, associated_token::AssociatedToken>,
     pub system_program: &'ctx Program<'info, System>,
 }
 
@@ -411,12 +409,11 @@ pub(crate) fn complete_swap_jup_v6<'info>(
         authority,
         src_swap_token,
         dst_swap_token,
-        usdc,
         dst_mint,
         token_program,
         dst_token_program,
-        associated_token_program,
         system_program,
+        ..
     } = &complete_swap;
 
     handle_complete_swap_jup_v6(
@@ -426,11 +423,9 @@ pub(crate) fn complete_swap_jup_v6<'info>(
             authority,
             src_swap_token,
             dst_swap_token,
-            usdc,
             dst_mint,
             token_program,
             dst_token_program,
-            associated_token_program,
             system_program,
         },
         crate::SWAP_AUTHORITY_SEED_PREFIX,
@@ -515,9 +510,9 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
         _ => return err!(SwapLayerError::InvalidOutputToken),
     };
 
-    let swap_authority = &accounts.authority;
+    let swap_authority = accounts.authority;
 
-    let prepared_fill_key = &accounts.consume_swap_layer_fill.prepared_fill_key();
+    let prepared_fill_key = accounts.consume_swap_layer_fill.prepared_fill_key();
     let swap_authority_seeds = &[
         swap_authority_seed_prefix,
         prepared_fill_key.as_ref(),
@@ -609,7 +604,7 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
         limit_amount,
     )?;
 
-    let payer = &accounts.payer;
+    let payer = accounts.payer;
 
     token::close_account(CpiContext::new_with_signer(
         accounts.token_program.to_account_info(),
@@ -652,14 +647,14 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
                 amount_out
                     .checked_add(gas_dropoff.unwrap_or_default())
                     .ok_or(SwapLayerError::U64Overflow)?,
-            )
+            )?
         } else {
             // Verify that the encoded owner is the actual owner. ATAs are no different from other token
             // accounts, so anyone can set the authority of an ATA to be someone else.
             {
-                let mut acc_data: &[_] = &recipient_token.data.borrow();
                 let recipient_token_owner =
-                    token::TokenAccount::try_deserialize(&mut acc_data).map(|token| token.owner)?;
+                    token::TokenAccount::try_deserialize(&mut &recipient_token.data.borrow()[..])
+                        .map(|token| token.owner)?;
                 require_keys_eq!(
                     recipient_token_owner,
                     recipient.key(),
@@ -703,13 +698,14 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
                         },
                     ),
                     gas_dropoff,
-                ),
-                _ => Ok(()),
+                )?,
+                _ => (),
             }
         }
-    } else {
-        Ok(())
     }
+
+    // Done.
+    Ok(())
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
