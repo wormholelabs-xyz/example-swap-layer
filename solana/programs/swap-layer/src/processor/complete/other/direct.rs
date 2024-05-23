@@ -223,6 +223,9 @@ where
         }
 
         let dst_mint = &ctx.accounts.complete_swap.dst_mint;
+        let decimals =
+            token_interface::Mint::try_deserialize_unchecked(&mut dst_mint.data.borrow().as_ref())
+                .map(|mint| mint.decimals)?;
 
         // Transfer destination tokens to recipient.
         token_interface::transfer_checked(
@@ -240,7 +243,7 @@ where
                 &[swap_authority_seeds],
             ),
             amount_out,
-            dst_mint.decimals,
+            decimals,
         )?;
     }
 

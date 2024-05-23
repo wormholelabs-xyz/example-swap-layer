@@ -87,7 +87,7 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
                 bump: ctx.bumps.staged_inbound,
             },
             info: StagedInboundInfo {
-                staged_custody_token_bump: ctx.bumps.staged_custody_token,
+                custody_token: ctx.accounts.staged_custody_token.key(),
                 staged_by: ctx.accounts.payer.key(),
                 source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
                 recipient: Pubkey::from(swap_msg.recipient),

@@ -13,52 +13,10 @@ use swap_layer_messages::{
 #[derive(Accounts)]
 pub struct CompleteSwapPayload<'info> {
     #[account(mut)]
-    pub payer: Signer<'info>,
+    payer: Signer<'info>,
 
     #[account(constraint = consume_swap_layer_fill.is_valid_output_swap(&dst_mint)?)]
     consume_swap_layer_fill: ConsumeSwapLayerFill<'info>,
-
-    /// CHECK: Seeds must be \["swap-authority", prepared_fill.key()\].
-    #[account(
-        seeds = [
-            crate::SWAP_AUTHORITY_SEED_PREFIX,
-            consume_swap_layer_fill.key().as_ref(),
-        ],
-        bump,
-    )]
-    swap_authority: UncheckedAccount<'info>,
-
-    /// Temporary swap token account to receive USDC from the prepared fill. This account will be
-    /// closed at the end of this instruction.
-    #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = usdc,
-        associated_token::authority = swap_authority,
-        associated_token::token_program = token_program
-    )]
-    src_swap_token: Box<Account<'info, token::TokenAccount>>,
-
-    /// Temporary swap token account to receive destination mint after the swap. This account will
-    /// be closed at the end of this instruction.
-    #[account(
-        init_if_needed,
-        payer = payer,
-        associated_token::mint = dst_mint,
-        associated_token::authority = swap_authority,
-        associated_token::token_program = dst_token_program
-    )]
-    dst_swap_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
-
-    /// This account must be verified as the source mint for the swap.
-    usdc: Usdc<'info>,
-
-    /// This account must be verified as the destination mint for the swap.
-    #[account(
-        token::token_program = dst_token_program,
-        constraint = usdc.key() != dst_mint.key() @ SwapLayerError::SameMint
-    )]
-    dst_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     #[account(
         init_if_needed,
@@ -73,21 +31,36 @@ pub struct CompleteSwapPayload<'info> {
         ],
         bump
     )]
-    staged_inbound: Account<'info, StagedInbound>,
+    staged_inbound: Box<Account<'info, StagedInbound>>,
 
+    /// Temporary swap token account to receive USDC from the prepared fill. This account will be
+    /// closed at the end of this instruction.
     #[account(
         init_if_needed,
         payer = payer,
-        token::mint = dst_mint,
-        token::authority = staged_inbound,
-        token::token_program = dst_token_program,
-        seeds = [
-            crate::STAGED_CUSTODY_TOKEN_SEED_PREFIX,
-            staged_inbound.key().as_ref(),
-        ],
-        bump,
+        associated_token::mint = usdc,
+        associated_token::authority = staged_inbound,
+        associated_token::token_program = token_program
     )]
-    staged_custody_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
+    src_swap_token: Box<Account<'info, token::TokenAccount>>,
+
+    /// Temporary swap token account to receive destination mint after the swap. This account will
+    /// be closed at the end of this instruction.
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = dst_mint,
+        associated_token::authority = staged_inbound,
+        associated_token::token_program = dst_token_program
+    )]
+    dst_swap_token: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
+
+    /// This account must be verified as the source mint for the swap.
+    usdc: Usdc<'info>,
+
+    /// CHECK: This account must be verified as the destination mint for the swap.
+    #[account(constraint = usdc.key() != dst_mint.key() @ SwapLayerError::SameMint)]
+    dst_mint: UncheckedAccount<'info>,
 
     token_program: Program<'info, token::Token>,
     dst_token_program: Interface<'info, token_interface::TokenInterface>,
@@ -172,13 +145,13 @@ where
     let in_amount =
         consume_swap_layer_fill.consume_prepared_fill(src_swap_token.as_ref(), token_program)?;
 
-    let swap_authority = &ctx.accounts.swap_authority;
+    let swap_authority = &ctx.accounts.staged_inbound;
 
     let prepared_fill_key = &consume_swap_layer_fill.prepared_fill_key();
     let swap_authority_seeds = &[
-        crate::SWAP_AUTHORITY_SEED_PREFIX,
+        StagedInbound::SEED_PREFIX,
         prepared_fill_key.as_ref(),
-        &[ctx.bumps.swap_authority],
+        &[ctx.bumps.staged_inbound],
     ];
 
     let (shared_accounts_route, mut swap_args, cpi_remaining_accounts) =
@@ -259,7 +232,7 @@ where
     };
 
     // Execute swap.
-    let amount_out = shared_accounts_route.swap_exact_in(
+    shared_accounts_route.swap_exact_in(
         swap_args,
         swap_authority_seeds,
         cpi_remaining_accounts,
@@ -278,42 +251,13 @@ where
         &[swap_authority_seeds],
     ))?;
 
-    let dst_token_program = &ctx.accounts.dst_token_program;
-    let dst_swap_token = &ctx.accounts.dst_swap_token;
-    let dst_mint = &ctx.accounts.dst_mint;
-
-    token_interface::transfer_checked(
-        CpiContext::new_with_signer(
-            dst_token_program.to_account_info(),
-            token_interface::TransferChecked {
-                from: dst_swap_token.to_account_info(),
-                to: ctx.accounts.staged_custody_token.to_account_info(),
-                authority: swap_authority.to_account_info(),
-                mint: dst_mint.to_account_info(),
-            },
-            &[swap_authority_seeds],
-        ),
-        amount_out,
-        dst_mint.decimals,
-    )?;
-
-    token_interface::close_account(CpiContext::new_with_signer(
-        dst_token_program.to_account_info(),
-        token_interface::CloseAccount {
-            account: dst_swap_token.to_account_info(),
-            destination: payer.to_account_info(),
-            authority: swap_authority.to_account_info(),
-        },
-        &[swap_authority_seeds],
-    ))?;
-
     ctx.accounts.staged_inbound.set_inner(StagedInbound {
         seeds: StagedInboundSeeds {
             prepared_fill: ctx.accounts.consume_swap_layer_fill.prepared_fill_key(),
             bump: ctx.bumps.staged_inbound,
         },
         info: StagedInboundInfo {
-            staged_custody_token_bump: ctx.bumps.staged_custody_token,
+            custody_token: ctx.accounts.dst_swap_token.key(),
             staged_by: ctx.accounts.payer.key(),
             source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
             recipient: recipient.into(),

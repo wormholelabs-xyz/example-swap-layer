@@ -11,7 +11,7 @@ pub struct StagedInboundSeeds {
 
 #[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
 pub struct StagedInboundInfo {
-    pub staged_custody_token_bump: u8,
+    pub custody_token: Pubkey,
 
     // Payer that created this StagedInbound.
     pub staged_by: Pubkey,

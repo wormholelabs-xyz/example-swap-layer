@@ -35,11 +35,7 @@ pub struct ReleaseInbound<'info> {
     /// CHECK: Mutable. Seeds must be \["staged-custody-token"\].
     #[account(
         mut,
-        seeds = [
-            crate::STAGED_CUSTODY_TOKEN_SEED_PREFIX,
-            staged_inbound.key().as_ref(),
-        ],
-        bump = staged_inbound.staged_custody_token_bump,
+        address = staged_inbound.custody_token,
     )]
     staged_custody_token: Account<'info, token::TokenAccount>,
 
