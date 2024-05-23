@@ -471,21 +471,7 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
         redeem_mode: _,
     } = swap_message;
 
-    let recipient_key = match &recipient {
-        Some(RecipientAccounts { recipient, .. }) => {
-            let actual_key = recipient.key();
-
-            require_keys_eq!(
-                actual_key,
-                Pubkey::from(expected_recipient),
-                SwapLayerError::InvalidRecipient
-            );
-
-            actual_key.into()
-        }
-        None => None,
-    };
-
+    let recipient_key = recipient.as_ref().map(|accounts| accounts.recipient.key());
     if let Some(recipient_key) = recipient_key {
         require_keys_eq!(
             recipient_key,
