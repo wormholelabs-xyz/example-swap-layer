@@ -364,8 +364,8 @@ pub struct HandleCompleteSwap<'ctx, 'info> {
     pub payer: &'ctx Signer<'info>,
     pub consume_swap_layer_fill: &'ctx ConsumeSwapLayerFill<'info>,
     pub authority: &'ctx AccountInfo<'info>,
-    pub src_swap_token: &'ctx Box<Account<'info, token::TokenAccount>>,
-    pub dst_swap_token: &'ctx Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
+    pub src_swap_token: &'ctx Account<'info, token::TokenAccount>,
+    pub dst_swap_token: &'ctx InterfaceAccount<'info, token_interface::TokenAccount>,
     pub usdc: &'ctx Usdc<'info>,
     pub dst_mint: &'ctx UncheckedAccount<'info>,
     pub token_program: &'ctx Program<'info, token::Token>,
@@ -393,6 +393,7 @@ impl<'info> Deref for CompleteSwap<'info> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn complete_swap_jup_v6<'info>(
     complete_swap: &CompleteSwap<'info>,
     bumps: &CompleteSwapBumps,
