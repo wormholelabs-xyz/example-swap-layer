@@ -42,16 +42,11 @@ where
     let swap_msg = complete_swap_accounts.read_message_unchecked();
     let in_amount = complete_swap_accounts.consume_prepared_fill()?;
 
-    let complete_swap_ctx = Context::new(
-        &crate::ID,
-        complete_swap_accounts,
-        ctx.remaining_accounts,
-        ctx.bumps.complete_swap,
-    );
-
     match &swap_msg.redeem_mode {
-        RedeemMode::Direct => complete_swap(
-            complete_swap_ctx,
+        RedeemMode::Direct => complete_swap_jup_v6(
+            complete_swap_accounts,
+            &ctx.bumps.complete_swap,
+            ctx.remaining_accounts,
             instruction_data,
             in_amount,
             swap_msg,

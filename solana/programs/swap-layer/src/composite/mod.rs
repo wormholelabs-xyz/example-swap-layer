@@ -21,7 +21,7 @@ use common::{
 };
 use swap_layer_messages::{
     messages::SwapMessageV1,
-    types::{JupiterV6SwapParameters, OutputSwap, OutputToken, RedeemMode, SwapType},
+    types::{OutputSwap, OutputToken, RedeemMode, SwapType},
 };
 use token_router::state::PreparedFill;
 
@@ -360,6 +360,20 @@ pub struct CompleteSwap<'info> {
     pub system_program: Program<'info, System>,
 }
 
+pub struct HandleCompleteSwap<'ctx, 'info> {
+    pub payer: &'ctx Signer<'info>,
+    pub consume_swap_layer_fill: &'ctx ConsumeSwapLayerFill<'info>,
+    pub authority: &'ctx AccountInfo<'info>,
+    pub src_swap_token: &'ctx Box<Account<'info, token::TokenAccount>>,
+    pub dst_swap_token: &'ctx Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
+    pub usdc: &'ctx Usdc<'info>,
+    pub dst_mint: &'ctx UncheckedAccount<'info>,
+    pub token_program: &'ctx Program<'info, token::Token>,
+    pub dst_token_program: &'ctx Interface<'info, token_interface::TokenInterface>,
+    pub associated_token_program: &'ctx Program<'info, associated_token::AssociatedToken>,
+    pub system_program: &'ctx Program<'info, System>,
+}
+
 impl<'info> CompleteSwap<'info> {
     pub fn custodian(&self) -> &CheckedCustodian<'info> {
         &self.consume_swap_layer_fill.custodian
@@ -379,69 +393,126 @@ impl<'info> Deref for CompleteSwap<'info> {
     }
 }
 
-pub fn complete_swap<'a, 'b, 'c, 'info>(
-    ctx: Context<'a, 'b, 'c, 'info, CompleteSwap<'info>>,
-    instruction_data: Vec<u8>,
+pub(crate) fn complete_swap_jup_v6<'info>(
+    complete_swap: &CompleteSwap<'info>,
+    bumps: &CompleteSwapBumps,
+    remaining_accounts: &'info [AccountInfo<'info>],
+    ix_data: Vec<u8>,
     in_amount: u64,
     swap_message: SwapMessageV1,
     recipient: &AccountInfo<'info>,
     recipient_token: &AccountInfo<'info>,
     gas_dropoff: Option<u64>,
-) -> Result<()>
-where
-    'c: 'info,
-{
+) -> Result<()> {
+    let CompleteSwap {
+        payer,
+        consume_swap_layer_fill,
+        authority,
+        src_swap_token,
+        dst_swap_token,
+        usdc,
+        dst_mint,
+        token_program,
+        dst_token_program,
+        associated_token_program,
+        system_program,
+    } = &complete_swap;
+
+    handle_complete_swap_jup_v6(
+        HandleCompleteSwap {
+            payer,
+            consume_swap_layer_fill,
+            authority,
+            src_swap_token,
+            dst_swap_token,
+            usdc,
+            dst_mint,
+            token_program,
+            dst_token_program,
+            associated_token_program,
+            system_program,
+        },
+        crate::SWAP_AUTHORITY_SEED_PREFIX,
+        bumps.authority,
+        remaining_accounts,
+        ix_data,
+        in_amount,
+        swap_message,
+        RecipientAccounts {
+            recipient,
+            recipient_token,
+        }
+        .into(),
+        gas_dropoff,
+    )
+}
+
+pub struct RecipientAccounts<'ctx, 'info> {
+    pub recipient: &'ctx AccountInfo<'info>,
+    pub recipient_token: &'ctx AccountInfo<'info>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
+    accounts: HandleCompleteSwap<'ctx, 'info>,
+    swap_authority_seed_prefix: &'static [u8],
+    swap_authority_bump_seed: u8,
+    remaining_accounts: &'info [AccountInfo<'info>],
+    ix_data: Vec<u8>,
+    in_amount: u64,
+    swap_message: SwapMessageV1,
+    recipient: Option<RecipientAccounts<'ctx, 'info>>,
+    gas_dropoff: Option<u64>,
+) -> Result<()> {
     let SwapMessageV1 {
         recipient: expected_recipient,
         output_token,
         redeem_mode: _,
     } = swap_message;
 
-    require_keys_eq!(
-        recipient.key(),
-        Pubkey::from(expected_recipient),
-        SwapLayerError::InvalidRecipient
-    );
+    let recipient_key = match &recipient {
+        Some(RecipientAccounts { recipient, .. }) => {
+            let actual_key = recipient.key();
 
-    match output_token {
-        OutputToken::Usdc => {
-            // In this case, we require that the signer of the instruction (the payer) is the
-            // recipient himself.
             require_keys_eq!(
-                ctx.accounts.payer.key(),
-                recipient.key(),
+                actual_key,
+                Pubkey::from(expected_recipient),
                 SwapLayerError::InvalidRecipient
             );
 
-            handle_complete_swap_direct_jup_v6(
-                ctx.accounts,
-                &ctx.bumps,
-                ctx.remaining_accounts,
-                instruction_data,
-                in_amount,
-                Default::default(),
-                Default::default(),
-                recipient,
-                recipient_token,
-                gas_dropoff,
-            )
+            actual_key.into()
         }
+        None => None,
+    };
+
+    if let Some(recipient_key) = recipient_key {
+        require_keys_eq!(
+            recipient_key,
+            Pubkey::from(expected_recipient),
+            SwapLayerError::InvalidRecipient
+        );
+    }
+
+    let (limit_and_params, is_native) = match output_token {
+        OutputToken::Usdc => match recipient_key {
+            Some(recipient_key) => {
+                // In this case, we require that the signer of the instruction (the payer) is the
+                // recipient himself.
+                require_keys_eq!(
+                    accounts.payer.key(),
+                    recipient_key,
+                    SwapLayerError::InvalidRecipient
+                );
+
+                (Default::default(), Default::default())
+            }
+            None => return err!(SwapLayerError::InvalidOutputToken),
+        },
         OutputToken::Gas(OutputSwap {
             deadline: _,
             limit_amount,
             swap_type: SwapType::JupiterV6(swap_params),
-        }) => handle_complete_swap_direct_jup_v6(
-            ctx.accounts,
-            &ctx.bumps,
-            ctx.remaining_accounts,
-            instruction_data,
-            in_amount,
-            (limit_amount.try_into().unwrap(), swap_params).into(),
-            true,
-            recipient,
-            recipient_token,
-            gas_dropoff,
-        ),
+        }) => ((limit_amount.try_into().unwrap(), swap_params).into(), true),
         OutputToken::Other {
             address: _,
             swap:
@@ -450,42 +521,20 @@ where
                     limit_amount,
                     swap_type: SwapType::JupiterV6(swap_params),
                 },
-        } => handle_complete_swap_direct_jup_v6(
-            ctx.accounts,
-            &ctx.bumps,
-            ctx.remaining_accounts,
-            instruction_data,
-            in_amount,
+        } => (
             (limit_amount.try_into().unwrap(), swap_params).into(),
             false,
-            recipient,
-            recipient_token,
-            gas_dropoff,
         ),
-        _ => err!(SwapLayerError::InvalidOutputToken),
-    }
-}
+        _ => return err!(SwapLayerError::InvalidOutputToken),
+    };
 
-#[allow(clippy::too_many_arguments)]
-fn handle_complete_swap_direct_jup_v6<'info>(
-    complete_swap: &CompleteSwap<'info>,
-    bumps: &CompleteSwapBumps,
-    remaining_accounts: &'info [AccountInfo<'info>],
-    ix_data: Vec<u8>,
-    in_amount: u64,
-    limit_and_params: Option<(u64, JupiterV6SwapParameters)>,
-    is_native: bool,
-    recipient: &AccountInfo<'info>,
-    recipient_token: &AccountInfo<'info>,
-    gas_dropoff: Option<u64>,
-) -> Result<()> {
-    let swap_authority = &complete_swap.authority;
+    let swap_authority = &accounts.authority;
 
-    let prepared_fill_key = &complete_swap.prepared_fill_key();
+    let prepared_fill_key = &accounts.consume_swap_layer_fill.prepared_fill_key();
     let swap_authority_seeds = &[
-        crate::SWAP_AUTHORITY_SEED_PREFIX,
+        swap_authority_seed_prefix,
         prepared_fill_key.as_ref(),
-        &[bumps.authority],
+        &[swap_authority_bump_seed],
     ];
 
     let (shared_accounts_route, mut swap_args, cpi_remaining_accounts) =
@@ -500,12 +549,12 @@ fn handle_complete_swap_direct_jup_v6<'info>(
         );
         require_keys_eq!(
             shared_accounts_route.src_custody_token.key(),
-            complete_swap.src_swap_token.key(),
+            accounts.src_swap_token.key(),
             SwapLayerError::InvalidSourceSwapToken
         );
         require_keys_eq!(
             shared_accounts_route.dst_custody_token.key(),
-            complete_swap.dst_swap_token.key(),
+            accounts.dst_swap_token.key(),
             SwapLayerError::InvalidDestinationSwapToken
         );
         require_keys_eq!(
@@ -515,7 +564,7 @@ fn handle_complete_swap_direct_jup_v6<'info>(
         );
         require_keys_eq!(
             shared_accounts_route.dst_mint.key(),
-            complete_swap.dst_mint.key(),
+            accounts.dst_mint.key(),
             SwapLayerError::InvalidDestinationMint
         );
     }
@@ -573,98 +622,106 @@ fn handle_complete_swap_direct_jup_v6<'info>(
         limit_amount,
     )?;
 
-    let payer = &complete_swap.payer;
+    let payer = &accounts.payer;
 
     token::close_account(CpiContext::new_with_signer(
-        complete_swap.token_program.to_account_info(),
+        accounts.token_program.to_account_info(),
         token::CloseAccount {
-            account: complete_swap.src_swap_token.to_account_info(),
+            account: accounts.src_swap_token.to_account_info(),
             destination: payer.to_account_info(),
-            authority: complete_swap.authority.to_account_info(),
+            authority: accounts.authority.to_account_info(),
         },
         &[swap_authority_seeds],
     ))?;
 
-    // We perform a token transfer if the output token is not gas.
-    if is_native {
-        // NOTE: If the output token is gas, lamports reflecting the WSOL amount will be transferred to
-        // the recipient's account. We first close and send all lamports to the payer.
-        token_interface::close_account(CpiContext::new_with_signer(
-            complete_swap.dst_token_program.to_account_info(),
-            token_interface::CloseAccount {
-                account: complete_swap.dst_swap_token.to_account_info(),
-                destination: payer.to_account_info(),
-                authority: complete_swap.authority.to_account_info(),
-            },
-            &[swap_authority_seeds],
-        ))?;
-
-        // Then transfer amount_out to recipient.
-        system_program::transfer(
-            CpiContext::new(
-                complete_swap.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: payer.to_account_info(),
-                    to: recipient.to_account_info(),
-                },
-            ),
-            amount_out
-                .checked_add(gas_dropoff.unwrap_or_default())
-                .ok_or(SwapLayerError::U64Overflow)?,
-        )
-    } else {
-        // Verify that the encoded owner is the actual owner. ATAs are no different from other token
-        // accounts, so anyone can set the authority of an ATA to be someone else.
-        {
-            let mut acc_data: &[_] = &recipient_token.data.borrow();
-            let recipient_token_owner =
-                token::TokenAccount::try_deserialize(&mut acc_data).map(|token| token.owner)?;
-            require_keys_eq!(
-                recipient_token_owner,
-                recipient.key(),
-                ErrorCode::ConstraintTokenOwner,
-            );
-        }
-
-        // Transfer destination tokens to recipient.
-        token::transfer(
-            CpiContext::new_with_signer(
-                complete_swap.token_program.to_account_info(),
-                token::Transfer {
-                    from: complete_swap.dst_swap_token.to_account_info(),
-                    to: recipient_token.to_account_info(),
-                    authority: swap_authority.to_account_info(),
+    if let Some(RecipientAccounts {
+        recipient,
+        recipient_token,
+    }) = recipient
+    {
+        // We perform a token transfer if the output token is not gas.
+        if is_native {
+            // NOTE: If the output token is gas, lamports reflecting the WSOL amount will be transferred to
+            // the recipient's account. We first close and send all lamports to the payer.
+            token_interface::close_account(CpiContext::new_with_signer(
+                accounts.dst_token_program.to_account_info(),
+                token_interface::CloseAccount {
+                    account: accounts.dst_swap_token.to_account_info(),
+                    destination: payer.to_account_info(),
+                    authority: accounts.authority.to_account_info(),
                 },
                 &[swap_authority_seeds],
-            ),
-            amount_out,
-        )?;
+            ))?;
 
-        // Close the destination swap token account.
-        token_interface::close_account(CpiContext::new_with_signer(
-            complete_swap.dst_token_program.to_account_info(),
-            token_interface::CloseAccount {
-                account: complete_swap.dst_swap_token.to_account_info(),
-                destination: payer.to_account_info(),
-                authority: complete_swap.authority.to_account_info(),
-            },
-            &[swap_authority_seeds],
-        ))?;
-
-        // If there is a gas dropoff, transfer it to the recipient.
-        match gas_dropoff {
-            Some(gas_dropoff) if gas_dropoff > 0 => system_program::transfer(
+            // Then transfer amount_out to recipient.
+            system_program::transfer(
                 CpiContext::new(
-                    complete_swap.system_program.to_account_info(),
+                    accounts.system_program.to_account_info(),
                     system_program::Transfer {
                         from: payer.to_account_info(),
                         to: recipient.to_account_info(),
                     },
                 ),
-                gas_dropoff,
-            ),
-            _ => Ok(()),
+                amount_out
+                    .checked_add(gas_dropoff.unwrap_or_default())
+                    .ok_or(SwapLayerError::U64Overflow)?,
+            )
+        } else {
+            // Verify that the encoded owner is the actual owner. ATAs are no different from other token
+            // accounts, so anyone can set the authority of an ATA to be someone else.
+            {
+                let mut acc_data: &[_] = &recipient_token.data.borrow();
+                let recipient_token_owner =
+                    token::TokenAccount::try_deserialize(&mut acc_data).map(|token| token.owner)?;
+                require_keys_eq!(
+                    recipient_token_owner,
+                    recipient.key(),
+                    ErrorCode::ConstraintTokenOwner,
+                );
+            }
+
+            // Transfer destination tokens to recipient.
+            token::transfer(
+                CpiContext::new_with_signer(
+                    accounts.token_program.to_account_info(),
+                    token::Transfer {
+                        from: accounts.dst_swap_token.to_account_info(),
+                        to: recipient_token.to_account_info(),
+                        authority: swap_authority.to_account_info(),
+                    },
+                    &[swap_authority_seeds],
+                ),
+                amount_out,
+            )?;
+
+            // Close the destination swap token account.
+            token_interface::close_account(CpiContext::new_with_signer(
+                accounts.dst_token_program.to_account_info(),
+                token_interface::CloseAccount {
+                    account: accounts.dst_swap_token.to_account_info(),
+                    destination: payer.to_account_info(),
+                    authority: accounts.authority.to_account_info(),
+                },
+                &[swap_authority_seeds],
+            ))?;
+
+            // If there is a gas dropoff, transfer it to the recipient.
+            match gas_dropoff {
+                Some(gas_dropoff) if gas_dropoff > 0 => system_program::transfer(
+                    CpiContext::new(
+                        accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: payer.to_account_info(),
+                            to: recipient.to_account_info(),
+                        },
+                    ),
+                    gas_dropoff,
+                ),
+                _ => Ok(()),
+            }
         }
+    } else {
+        Ok(())
     }
 }
 

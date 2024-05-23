@@ -121,15 +121,10 @@ where
         )
     };
 
-    let complete_swap_ctx = Context::new(
-        &crate::ID,
-        &mut ctx.accounts.complete_swap,
+    complete_swap_jup_v6(
+        &ctx.accounts.complete_swap,
+        &ctx.bumps.complete_swap,
         ctx.remaining_accounts,
-        ctx.bumps.complete_swap,
-    );
-
-    complete_swap(
-        complete_swap_ctx,
         instruction_data,
         in_amount,
         swap_msg,
