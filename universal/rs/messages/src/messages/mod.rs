@@ -5,11 +5,7 @@ use crate::{
     wormhole_io::{Readable, TypePrefixedPayload, Writeable},
 };
 
-#[cfg(feature = "anchor")]
-use anchor_lang::prelude::{borsh, AnchorDeserialize, AnchorSerialize};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "anchor", derive(AnchorSerialize, AnchorDeserialize))]
 pub struct SwapMessageV1 {
     pub recipient: [u8; 32],
     pub redeem_mode: RedeemMode,
