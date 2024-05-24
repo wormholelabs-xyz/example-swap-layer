@@ -72,7 +72,7 @@ const redeemModeItem = {
             [1, "Payload"],
             [
                 { name: "sender", ...layoutItems.universalAddressItem },
-                { name: "buf", binary: "bytes", lengthSize: 4 },
+                { name: "buf", binary: "bytes", lengthSize: 2 },
             ],
         ],
         [

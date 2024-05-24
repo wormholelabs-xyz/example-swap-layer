@@ -11,7 +11,7 @@ pub enum RedeemMode {
     Direct,
     Payload {
         sender: [u8; 32],
-        buf: Vec<u8>,
+        buf: WriteableBytes<u16>,
     },
     Relay {
         gas_dropoff: u32,
@@ -43,23 +43,6 @@ impl RedeemMode {
     }
 }
 
-impl TryFrom<(u32, u64)> for RedeemMode {
-    type Error = <Uint48 as TryFrom<u64>>::Error;
-
-    fn try_from((gas_dropoff, relaying_fee): (u32, u64)) -> Result<Self, Self::Error> {
-        Ok(Self::Relay {
-            gas_dropoff,
-            relaying_fee: relaying_fee.try_into()?,
-        })
-    }
-}
-
-impl From<([u8; 32], Vec<u8>)> for RedeemMode {
-    fn from((sender, buf): ([u8; 32], Vec<u8>)) -> Self {
-        Self::Payload { sender, buf }
-    }
-}
-
 impl Readable for RedeemMode {
     fn read<R>(reader: &mut R) -> io::Result<Self>
     where
@@ -70,7 +53,7 @@ impl Readable for RedeemMode {
             Self::DIRECT => Ok(Self::Direct),
             Self::PAYLOAD => Ok(Self::Payload {
                 sender: Readable::read(reader)?,
-                buf: WriteableBytes::<u32>::read(reader).map(Into::into)?,
+                buf: Readable::read(reader)?,
             }),
             Self::RELAY => Ok(Self::Relay {
                 gas_dropoff: Readable::read(reader)?,
@@ -94,9 +77,7 @@ impl Writeable for RedeemMode {
             Self::Payload { sender, buf } => {
                 Self::PAYLOAD.write(writer)?;
                 sender.write(writer)?;
-
-                // NOTE: WriteableBytes<T> performs a length check.
-                unsafe_writeable_bytes_ref(buf).write(writer)
+                buf.write(writer)
             }
             Self::Relay {
                 gas_dropoff,
@@ -108,8 +89,4 @@ impl Writeable for RedeemMode {
             }
         }
     }
-}
-
-fn unsafe_writeable_bytes_ref(bytes: &Vec<u8>) -> &WriteableBytes<u32> {
-    unsafe { std::mem::transmute::<&Vec<u8>, &WriteableBytes<u32>>(bytes) }
 }

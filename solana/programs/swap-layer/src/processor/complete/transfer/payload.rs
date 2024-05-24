@@ -75,31 +75,29 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
             &ctx.accounts.token_program,
         )?;
 
-        let mut swap_msg = ctx
+        let swap_msg = ctx
             .accounts
             .consume_swap_layer_fill
             .read_message_unchecked();
 
-        let (sender, recipient_payload) = match &mut swap_msg.redeem_mode {
-            RedeemMode::Payload { sender, buf } => (*sender, std::mem::take(buf)),
-            _ => return Err(SwapLayerError::InvalidRedeemMode.into()),
+        match swap_msg.redeem_mode {
+            RedeemMode::Payload { sender, buf } => staged_inbound.set_inner(StagedInbound {
+                seeds: StagedInboundSeeds {
+                    prepared_fill: ctx.accounts.consume_swap_layer_fill.prepared_fill_key(),
+                    bump: ctx.bumps.staged_inbound,
+                },
+                info: StagedInboundInfo {
+                    custody_token: ctx.accounts.staged_custody_token.key(),
+                    staged_by: ctx.accounts.payer.key(),
+                    source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
+                    sender,
+                    recipient: Pubkey::from(swap_msg.recipient),
+                    is_native: false,
+                },
+                recipient_payload: buf.into(),
+            }),
+            _ => return err!(SwapLayerError::InvalidRedeemMode),
         };
-
-        staged_inbound.set_inner(StagedInbound {
-            seeds: StagedInboundSeeds {
-                prepared_fill: ctx.accounts.consume_swap_layer_fill.prepared_fill_key(),
-                bump: ctx.bumps.staged_inbound,
-            },
-            info: StagedInboundInfo {
-                custody_token: ctx.accounts.staged_custody_token.key(),
-                staged_by: ctx.accounts.payer.key(),
-                source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
-                sender,
-                recipient: Pubkey::from(swap_msg.recipient),
-                is_native: false,
-            },
-            recipient_payload,
-        });
     }
 
     Ok(())
