@@ -54,6 +54,7 @@ import {
     denormalizeGasDropOff,
     encodeSwapLayerMessage,
     localnet,
+    TEST_RELAY_PARAMS,
 } from "../src/swapLayer";
 import {
     REGISTERED_PEERS,
@@ -61,6 +62,7 @@ import {
     createLut,
     tryNativeToUint8Array,
     whichTokenProgram,
+    FEE_UPDATER_KEYPAIR,
 } from "./helpers";
 
 const JUPITER_V6_LUT_ADDRESSES = [
@@ -73,6 +75,7 @@ describe("Jupiter V6 Testing", () => {
 
     const payer = PAYER_KEYPAIR;
     const testRecipient = Keypair.generate();
+    const feeUpdater = FEE_UPDATER_KEYPAIR;
 
     // Program SDKs
     const swapLayer = new SwapLayerProgram(connection, localnet(), USDC_MINT_ADDRESS);
@@ -415,6 +418,386 @@ describe("Jupiter V6 Testing", () => {
                 );
 
                 await expectIxErr(connection, [transferIx], [payer], "SwapTimeLimitNotExceeded");
+
+                // Update the swap time limit to 0 seconds so that the following tests run quickly.
+                const ix = await swapLayer.updateRelayParamsIx(
+                    {
+                        feeUpdater: feeUpdater.publicKey,
+                    },
+                    {
+                        chain: toChainId("Ethereum"),
+                        relayParams: {
+                            ...TEST_RELAY_PARAMS,
+                            swapTimeLimit: { fastLimit: 0, finalizedLimit: 0 },
+                        },
+                    },
+                );
+
+                await expectIxOk(swapLayer.program.provider.connection, [ix], [feeUpdater]);
+            });
+
+            it("Cannot Swap (Invalid Redeem Mode)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: { mode: "Direct" },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidRedeemMode",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Destination Mint)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    recipient,
+                );
+
+                // Pass in the wrong destination mint.
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint: USDC_MINT_ADDRESS,
+                        recipientToken: recipientToken.address,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidDestinationMint",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Exceeds Swap Deadline)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    deadline: 1, // Set the deadline to 1 second.
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                // Pass in the wrong destination mint.
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "SwapPastDeadline",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Limit Amount)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000_000_000_000_000_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                // Pass in the wrong destination mint.
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidLimitAmount",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Same Mint)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint: USDC_MINT_ADDRESS,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    recipient,
+                );
+
+                // Pass in the wrong destination mint.
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint: USDC_MINT_ADDRESS,
+                        recipientToken: recipientToken.address,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "SameMint",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Recipient ATA)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                // Pass in payer token account instead.
+                const payerToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    payer.publicKey,
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        recipientToken: payerToken.address,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "recipient_token. Error Code: ConstraintAddress",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Fee Recipient)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                    },
+                );
+
+                // Pass in payer token account instead.
+                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    recipient,
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        feeRecipientToken: recipientToken.address,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "fee_recipient_token. Error Code: ConstraintAddress",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Recipient)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0,
+                            relayingFee: 0n,
+                        },
+                        amountIn,
+                        recipientOverride: feeUpdater.publicKey,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee: 0n,
+                        denormGasDropoff: 0n,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidRecipient",
+                    },
+                );
             });
 
             it("Other (USDT) via Whirlpool", async function () {
@@ -427,6 +810,90 @@ describe("Jupiter V6 Testing", () => {
 
                 const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
                 const relayingFee = 690000n; // .69 USDC
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Other (USDT) via Whirlpool (No Relayer Fee)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 0n;
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Other (USDT) via Whirlpool (No Relayer Fee Or Gas Dropoff)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 100,
+                });
+
+                const gasDropoff = 0;
+                const relayingFee = 0n;
                 const amountIn = 200_000_000n;
                 const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
                     { payer: payer.publicKey },
@@ -628,6 +1095,82 @@ describe("Jupiter V6 Testing", () => {
                 );
             });
 
+            it("Gas via Phoenix V1 (No Relayer Fee)", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 100_000; // .1 SOL (10,000 * 1e3)
+                const relayingFee = 0n;
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Gas via Phoenix V1 (No Relayer Fee Or Gas Dropoff)", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const gasDropoff = 0;
+                const relayingFee = 0n;
+                const amountIn = 300_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff,
+                            relayingFee,
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapRelayForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                    },
+                    {
+                        limitAmount,
+                        relayingFee,
+                        denormGasDropoff: denormalizeGasDropOff(gasDropoff),
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
             it("Gas via Phoenix V1 (Self Redeem)", async function () {
                 const { limitAmount, outputToken } = newQuotedSwapOutputToken({
                     quotedAmountOut: 2_000_000_000n,
@@ -670,9 +1213,8 @@ describe("Jupiter V6 Testing", () => {
             });
 
             it("Redeem USDC (Failed Swap)", async function () {
-                // NOTE: This test assumes that the relayParams swapTimeLimit.fastLimit is set to
-                // 2 seconds. If that value changes for any reason, make sure to update this test.
-
+                // NOTE: The fast limit is set to 0 seconds, so the USDC relay should be allowed
+                // without any time constraints.
                 const dstMint = USDT_MINT_ADDRESS;
                 const { outputToken } = newQuotedSwapOutputToken({
                     quotedAmountOut: 198_800_000n,
@@ -697,18 +1239,21 @@ describe("Jupiter V6 Testing", () => {
                         baseFee: 0n,
                     },
                 );
-
-                // Sleep for 3 seconds.
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-
-                await splToken.getOrCreateAssociatedTokenAccount(
-                    connection,
-                    payer,
-                    USDC_MINT_ADDRESS,
-                    recipient,
-                );
-
                 const beneficiary = Keypair.generate();
+
+                // Create an ATA for the recipient.
+                await expectIxOk(
+                    connection,
+                    [
+                        splToken.createAssociatedTokenAccountInstruction(
+                            payer.publicKey,
+                            splToken.getAssociatedTokenAddressSync(USDC_MINT_ADDRESS, recipient),
+                            recipient,
+                            USDC_MINT_ADDRESS,
+                        ),
+                    ],
+                    [payer],
+                );
 
                 // Balance check.
                 const recipientBefore = await getUsdcAtaBalance(connection, recipient);
@@ -1300,6 +1845,8 @@ describe("Jupiter V6 Testing", () => {
             payer: PublicKey;
             preparedFill: PublicKey;
             recipient: PublicKey;
+            feeRecipientToken?: PublicKey;
+            recipientToken?: PublicKey;
             dstMint?: PublicKey;
         },
         opts: ForTestOpts & {
@@ -1323,7 +1870,6 @@ describe("Jupiter V6 Testing", () => {
             },
         );
         const expectedDstMint = accounts.dstMint ?? splToken.NATIVE_MINT;
-        assert.deepEqual(destinationMint, expectedDstMint);
 
         const ix = await swapLayer.completeSwapRelayIx(accounts, { cpiInstruction });
 
@@ -1391,10 +1937,13 @@ describe("Jupiter V6 Testing", () => {
 
             assert.isTrue(dstBalanceAfter - dstBalanceBefore >= limitAmount);
 
+            const balanceAfter = await connection.getBalance(accounts.recipient).then(BigInt);
             if (!selfRedeem) {
-                const balanceAfter = await connection.getBalance(accounts.recipient).then(BigInt);
-                // TODO: Can we do a more accurate check?
-                assert.isTrue(balanceAfter - balanceBefore >= denormGasDropoff);
+                assert.isTrue(balanceAfter - balanceBefore == denormGasDropoff);
+            } else {
+                // Should be nonzero since token accounts are closed and lamports are sent to
+                // the payer.
+                assert.isTrue(balanceAfter - balanceBefore > 0);
             }
         } else {
             assert.fail("Invalid output token type");
@@ -1520,6 +2069,7 @@ describe("Jupiter V6 Testing", () => {
             recipient?: PublicKey;
             redeemMode?: RedeemMode;
             outputToken?: OutputToken;
+            recipientOverride?: PublicKey;
         },
         createRecipientAta = true,
     ) {
@@ -1564,8 +2114,13 @@ describe("Jupiter V6 Testing", () => {
             );
         }
 
+        let encodedRecipient = recipient;
+        if (opts.recipientOverride !== undefined) {
+            encodedRecipient = opts.recipientOverride;
+        }
+
         const msg = {
-            recipient: toUniversal("Solana", recipient.toString()),
+            recipient: toUniversal("Solana", encodedRecipient.toString()),
             redeemMode,
             outputToken,
         } as SwapLayerMessage;

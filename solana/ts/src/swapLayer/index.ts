@@ -1,6 +1,7 @@
 export * from "./messages";
 export * from "./relayerFees";
 export * from "./state";
+export * from "./consts";
 
 import * as wormholeSdk from "@certusone/wormhole-sdk";
 import { BN, Program } from "@coral-xyz/anchor";
@@ -964,6 +965,7 @@ export class SwapLayerProgram {
             beneficiary?: PublicKey;
             dstTokenProgram?: PublicKey;
             feeRecipientToken?: PublicKey;
+            recipientToken?: PublicKey;
         },
         args: {
             cpiInstruction: TransactionInstruction;
@@ -972,10 +974,11 @@ export class SwapLayerProgram {
         const { payer, preparedFill, recipient } = accounts;
         const { cpiInstruction } = args;
 
-        let { beneficiary, dstMint, dstTokenProgram, feeRecipientToken } = accounts;
+        let { beneficiary, dstMint, dstTokenProgram, feeRecipientToken, recipientToken } = accounts;
         beneficiary ??= payer;
         dstMint ??= splToken.NATIVE_MINT;
         feeRecipientToken ??= await this.fetchCustodian().then((c) => c.feeRecipientToken);
+        recipientToken ??= splToken.getAssociatedTokenAddressSync(dstMint, recipient);
 
         const swapAuthority = this.swapAuthorityAddress(preparedFill);
         const swapAccounts = await this.swapAccounts({
@@ -1007,7 +1010,7 @@ export class SwapLayerProgram {
                     dstTokenProgram,
                     systemProgram: SystemProgram.programId,
                 },
-                recipientToken: splToken.getAssociatedTokenAddressSync(dstMint, recipient),
+                recipientToken,
                 recipient,
                 feeRecipientToken,
             })
