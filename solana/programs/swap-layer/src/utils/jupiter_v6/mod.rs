@@ -32,10 +32,7 @@ impl JupiterV6SwapExactIn for cpi::SharedAccountsRouteArgs {
     }
 }
 
-pub fn compute_min_amount_out<T>(swap_args: &T) -> u64
-where
-    T: JupiterV6SwapExactIn,
-{
+pub fn compute_min_amount_out(swap_args: &impl JupiterV6SwapExactIn) -> u64 {
     let quoted_out_amount = swap_args.quoted_out_amount();
 
     // In case the slippage bps is configured to be greater than the max, we will set it to the max
