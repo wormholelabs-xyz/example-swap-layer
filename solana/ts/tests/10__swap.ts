@@ -228,6 +228,57 @@ describe("Jupiter V6 Testing", () => {
 
     describe("USDC Swap (Relay)", function () {
         describe("Outbound", function () {
+            it("Cannot Swap (Amount Out Too Small)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+                const gasDropoff = 500000;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        amountIn: 100n, // Reduce the amountIn.
+                        redeemOption: {
+                            relay: { gasDropoff, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const expectedRelayerFee = calculateRelayerFee(
+                    TEST_RELAY_PARAMS,
+                    denormalizeGasDropOff(gasDropoff),
+                    outputToken,
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction, minAmountOut } =
+                    await modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    });
+                assert.isTrue(minAmountOut < expectedRelayerFee);
+
+                await swapExactInForTest(
+                    { payer: payer.publicKey, stagedOutbound, srcMint },
+                    { cpiInstruction },
+                    "AmountOutTooSmall",
+                );
+            });
+
             it("USDT via Whirlpool", async function () {
                 const srcMint = USDT_MINT_ADDRESS;
 
@@ -282,31 +333,10 @@ describe("Jupiter V6 Testing", () => {
                     assert.isTrue(accInfos.every((info) => info === null));
                 }
 
-                const ix = await swapLayer.initiateSwapExactInIx(
-                    {
-                        payer: payer.publicKey,
-                        stagedOutbound,
-                        srcMint,
-                    },
-                    {
-                        cpiInstruction,
-                    },
+                await swapExactInForTest(
+                    { payer: payer.publicKey, stagedOutbound, srcMint },
+                    { cpiInstruction },
                 );
-
-                const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
-                    units: 360_000,
-                });
-
-                const addressLookupTableAccounts = await Promise.all(
-                    luts.map(async (lookupTableAddress) => {
-                        const resp = await connection.getAddressLookupTable(lookupTableAddress);
-                        return resp.value;
-                    }),
-                );
-
-                await expectIxOk(connection, [computeIx, ix], [payer], {
-                    addressLookupTableAccounts,
-                });
 
                 {
                     const accInfos = await connection.getMultipleAccountsInfo([
@@ -2751,6 +2781,48 @@ describe("Jupiter V6 Testing", () => {
             redeemMode,
             outputToken,
         };
+    }
+
+    async function swapExactInForTest(
+        accounts: {
+            payer: PublicKey;
+            stagedOutbound: PublicKey;
+            stagedCustodyToken?: PublicKey;
+            preparedOrder?: PublicKey;
+            srcMint?: PublicKey;
+            srcTokenProgram?: PublicKey;
+            preparedBy?: PublicKey;
+            usdcRefundToken?: PublicKey;
+        },
+        args: {
+            cpiInstruction: TransactionInstruction;
+            targetChain?: ChainId;
+        },
+        err?: string,
+    ) {
+        const ix = await swapLayer.initiateSwapExactInIx(accounts, args);
+
+        const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+            units: 360_000,
+        });
+
+        const addressLookupTableAccounts = await Promise.all(
+            luts.map(async (lookupTableAddress) => {
+                const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                return resp.value;
+            }),
+        );
+
+        if (err !== undefined) {
+            await expectIxErr(connection, [computeIx, ix], [payer], err, {
+                addressLookupTableAccounts,
+            });
+            return;
+        }
+
+        await expectIxOk(connection, [computeIx, ix], [payer], {
+            addressLookupTableAccounts,
+        });
     }
 });
 
