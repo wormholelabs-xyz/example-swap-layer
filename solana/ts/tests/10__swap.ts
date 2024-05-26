@@ -228,7 +228,7 @@ describe("Jupiter V6 Testing", () => {
 
     describe("USDC Swap (Relay)", function () {
         describe("Outbound", function () {
-            it("Cannot Swap (Amount Out Too Small)", async function () {
+            it("Cannot Swap (Amount Out Doesn't Cover Relayer Fee)", async function () {
                 const srcMint = USDT_MINT_ADDRESS;
                 const gasDropoff = 500000;
 
@@ -276,6 +276,262 @@ describe("Jupiter V6 Testing", () => {
                     { payer: payer.publicKey, stagedOutbound, srcMint },
                     { cpiInstruction },
                     "AmountOutTooSmall",
+                );
+            });
+
+            it("Cannot Swap (Invalid Prepared By)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction } = await modifyUsdtToUsdcSwapResponseForTest(
+                    swapAuthority,
+                    {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    },
+                );
+
+                await swapExactInForTest(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint,
+                        preparedBy: testRecipient.publicKey,
+                    },
+                    { cpiInstruction },
+                    "prepared_by. Error Code: ConstraintAddress",
+                );
+            });
+
+            it("Cannot Swap (Invalid USDC Refund Token)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction } = await modifyUsdtToUsdcSwapResponseForTest(
+                    swapAuthority,
+                    {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    },
+                );
+
+                const invalidToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    testRecipient.publicKey,
+                );
+
+                await swapExactInForTest(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint,
+                        usdcRefundToken: invalidToken.address,
+                    },
+                    { cpiInstruction },
+                    "usdc_refund_token. Error Code: ConstraintAddress",
+                );
+            });
+
+            it("Cannot Swap (Invalid Target Chain)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction } = await modifyUsdtToUsdcSwapResponseForTest(
+                    swapAuthority,
+                    {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    },
+                );
+
+                // Pass a chain id for a peer that has been registered, but is not the
+                // target chain for the swap.
+                await swapExactInForTest(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint,
+                    },
+                    { cpiInstruction, targetChain: toChainId("Holesky") },
+                    "InvalidTargetChain",
+                );
+            });
+
+            it("Cannot Swap (Invalid Source Mint)", async function () {
+                const srcMint = USDT_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction } = await modifyUsdtToUsdcSwapResponseForTest(
+                    swapAuthority,
+                    {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    },
+                );
+
+                // Pass a chain id for a peer that has been registered, but is not the
+                // target chain for the swap.
+                await swapExactInForTest(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint: USDC_MINT_ADDRESS,
+                    },
+                    { cpiInstruction },
+                    "src_mint. Error Code: ConstraintAddress",
+                );
+            });
+
+            it("Cannot Swap (Same Mint)", async function () {
+                const srcMint = USDC_MINT_ADDRESS;
+
+                const {
+                    stagedOutbound,
+                    custodyBalance: inAmount,
+                    outputToken,
+                } = await stageOutboundForTest(
+                    {
+                        payer: payer.publicKey,
+                        senderToken: splToken.getAssociatedTokenAddressSync(
+                            srcMint,
+                            payer.publicKey,
+                            false,
+                            await whichTokenProgram(connection, srcMint),
+                        ),
+                        srcMint,
+                    },
+                    {
+                        redeemOption: {
+                            relay: { gasDropoff: 500000, maxRelayerFee: 9999999999999n },
+                        },
+                    },
+                );
+
+                const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
+                const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+                const { instruction: cpiInstruction } = await modifyUsdtToUsdcSwapResponseForTest(
+                    swapAuthority,
+                    {
+                        inAmount,
+                        quotedOutAmount: inAmount, // stable swap
+                        slippageBps: 10000,
+                        cpi: true,
+                    },
+                );
+
+                // Pass a chain id for a peer that has been registered, but is not the
+                // target chain for the swap.
+                await swapExactInForTest(
+                    {
+                        payer: payer.publicKey,
+                        stagedOutbound,
+                        srcMint: USDC_MINT_ADDRESS,
+                        stagedCustodyToken: swapLayer.stagedCustodyTokenAddress(stagedOutbound),
+                    },
+                    { cpiInstruction },
+                    "SameMint",
                 );
             });
 
