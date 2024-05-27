@@ -1707,6 +1707,91 @@ describe("Jupiter V6 Testing", () => {
                 }
             });
 
+            it("Cannot Swap (Invalid Recipient ATA)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 15,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                // Pass in payer token account instead.
+                const payerToken = await splToken.getOrCreateAssociatedTokenAccount(
+                    connection,
+                    payer,
+                    USDC_MINT_ADDRESS,
+                    payer.publicKey,
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        recipientToken: payerToken.address,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "recipient_token. Error Code: ConstraintAddress",
+                    },
+                );
+            });
+
+            it("Cannot Swap (Invalid Redeem Mode)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 15,
+                });
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode: {
+                            mode: "Payload",
+                            sender: toUniversal(
+                                "Ethereum",
+                                "0x000000000000000000000000000000000000d00d",
+                            ),
+                            buf: Buffer.from("All your base are belong to us."),
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidRedeemMode",
+                    },
+                );
+            });
+
             it("Other (USDT) via Whirlpool", async function () {
                 const dstMint = USDT_MINT_ADDRESS;
                 const { limitAmount, outputToken } = newQuotedSwapOutputToken({
@@ -2049,6 +2134,7 @@ describe("Jupiter V6 Testing", () => {
             payer: PublicKey;
             preparedFill: PublicKey;
             recipient: PublicKey;
+            recipientToken?: PublicKey;
             dstMint?: PublicKey;
         },
         opts: ForTestOpts & {
