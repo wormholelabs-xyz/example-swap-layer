@@ -7,7 +7,7 @@ use swap_layer_messages::types::{OutputToken, RedeemMode};
 pub struct CompleteTransferDirect<'info> {
     #[account(
         constraint = {
-            let swap_msg = consume_swap_layer_fill.read_message_unchecked();
+            let (_, _, swap_msg) = consume_swap_layer_fill.try_read_message_unchecked()?;
 
             require_keys_eq!(
                 recipient.key(),
@@ -49,8 +49,8 @@ pub fn complete_transfer_direct(ctx: Context<CompleteTransferDirect>) -> Result<
     match ctx
         .accounts
         .consume_swap_layer_fill
-        .read_message_unchecked()
-        .redeem_mode
+        .try_read_message_unchecked()
+        .map(|result| result.2.redeem_mode)?
     {
         RedeemMode::Direct => ctx
             .accounts

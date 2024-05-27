@@ -6,7 +6,11 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token;
-use swap_layer_messages::types::{OutputToken, RedeemMode};
+use common::wormhole_io::TypePrefixedPayload;
+use swap_layer_messages::{
+    messages::SwapMessageV1,
+    types::{OutputToken, RedeemMode},
+};
 use token_router::state::FillType;
 
 #[derive(Accounts)]
@@ -17,7 +21,8 @@ pub struct CompleteTransferRelay<'info> {
 
     #[account(
         constraint = {
-            let swap_msg = consume_swap_layer_fill.read_message_unchecked();
+            let fill = consume_swap_layer_fill.try_deserialize_prepared_fill_unchecked()?;
+            let swap_msg = SwapMessageV1::read_slice(&fill.redeemer_message).unwrap();
 
             require_keys_eq!(
                 recipient.key(),
@@ -27,19 +32,18 @@ pub struct CompleteTransferRelay<'info> {
 
             match swap_msg.output_token {
                 OutputToken::Usdc => {}
-                OutputToken::Gas(_) | OutputToken::Other {
+                OutputToken::Gas(_)
+                | OutputToken::Other {
                     address: _,
                     swap: _,
                 } => {
-                    let time_diff = Clock::get()?
-                        .unix_timestamp
-                        .saturating_sub(consume_swap_layer_fill.fill.timestamp);
+                    let time_diff = Clock::get()?.unix_timestamp.saturating_sub(fill.timestamp);
                     let swap_time_limit = &consume_swap_layer_fill
-                        .associated_peer
+                        .source_peer
                         .relay_params
                         .swap_time_limit;
 
-                    match consume_swap_layer_fill.fill.fill_type {
+                    match fill.fill_type {
                         FillType::FastFill => {
                             require!(
                                 time_diff > i64::from(swap_time_limit.fast_limit),
@@ -52,7 +56,9 @@ pub struct CompleteTransferRelay<'info> {
                                 SwapLayerError::SwapTimeLimitNotExceeded
                             );
                         }
-                        FillType::Unset => return Err(SwapLayerError::UnsupportedFillType.into()),
+                        FillType::Unset => {
+                            return Err(SwapLayerError::UnsupportedFillType.into())
+                        }
                     }
                 }
             }
@@ -67,7 +73,7 @@ pub struct CompleteTransferRelay<'info> {
         payer = payer,
         seeds = [
             crate::COMPLETE_TOKEN_SEED_PREFIX,
-            consume_swap_layer_fill.key().as_ref(),
+            consume_swap_layer_fill.prepared_fill_key().as_ref(),
         ],
         bump,
         token::mint = usdc,
@@ -108,8 +114,8 @@ pub fn complete_transfer_relay(ctx: Context<CompleteTransferRelay>) -> Result<()
     match ctx
         .accounts
         .consume_swap_layer_fill
-        .read_message_unchecked()
-        .redeem_mode
+        .try_read_message_unchecked()
+        .map(|result| result.2.redeem_mode)?
     {
         RedeemMode::Relay {
             gas_dropoff,

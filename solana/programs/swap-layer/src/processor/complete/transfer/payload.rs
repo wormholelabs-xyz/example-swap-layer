@@ -15,7 +15,7 @@ pub struct CompleteTransferPayload<'info> {
 
     #[account(
         constraint = {
-            let swap_msg = consume_swap_layer_fill.read_message_unchecked();
+            let (_, _, swap_msg) = consume_swap_layer_fill.try_read_message_unchecked()?;
 
             require!(
                 matches!(
@@ -35,7 +35,7 @@ pub struct CompleteTransferPayload<'info> {
         payer = payer,
         space = StagedInbound::try_compute_size_if_needed(
             staged_inbound,
-            consume_swap_layer_fill.read_message_unchecked()
+            consume_swap_layer_fill.try_read_message_unchecked()?.2
         )?,
         seeds = [
             StagedInbound::SEED_PREFIX,
@@ -68,17 +68,17 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
     let staged_inbound = &mut ctx.accounts.staged_inbound;
 
     // Set the staged transfer if it hasn't been set yet.
-    if staged_inbound.staged_by == Pubkey::default() {
+    if staged_inbound.uninitialized() {
+        let (source_chain, _, swap_msg) = ctx
+            .accounts
+            .consume_swap_layer_fill
+            .try_read_message_unchecked()?;
+
         // Consume the prepared fill, and send the tokens to the staged custody account.
         ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
             ctx.accounts.staged_custody_token.as_ref().as_ref(),
             &ctx.accounts.token_program,
         )?;
-
-        let swap_msg = ctx
-            .accounts
-            .consume_swap_layer_fill
-            .read_message_unchecked();
 
         match swap_msg.redeem_mode {
             RedeemMode::Payload { sender, buf } => staged_inbound.set_inner(StagedInbound {
@@ -89,7 +89,7 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
                 info: StagedInboundInfo {
                     custody_token: ctx.accounts.staged_custody_token.key(),
                     staged_by: ctx.accounts.payer.key(),
-                    source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
+                    source_chain,
                     sender,
                     recipient: Pubkey::from(swap_msg.recipient),
                     is_native: false,

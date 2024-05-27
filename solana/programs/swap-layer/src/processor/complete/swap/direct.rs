@@ -39,7 +39,7 @@ where
     let complete_swap_accounts = &mut ctx.accounts.complete_swap;
 
     // Read message to determine redeem mode and consume prepared fill.
-    let swap_msg = complete_swap_accounts.read_message_unchecked();
+    let (_, _, swap_msg) = complete_swap_accounts.try_read_message_unchecked()?;
     let in_amount = complete_swap_accounts.consume_prepared_fill()?;
 
     match &swap_msg.redeem_mode {

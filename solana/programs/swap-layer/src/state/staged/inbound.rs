@@ -3,7 +3,7 @@ use swap_layer_messages::{messages::SwapMessageV1, types::RedeemMode};
 
 use crate::error::SwapLayerError;
 
-#[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+#[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, Default, PartialEq, Eq, InitSpace)]
 pub struct StagedInboundSeeds {
     pub prepared_fill: Pubkey,
     pub bump: u8,
@@ -40,7 +40,22 @@ pub struct StagedInbound {
 impl StagedInbound {
     pub const SEED_PREFIX: &'static [u8] = b"staged-inbound";
 
-    pub fn try_compute_size(swap_msg: SwapMessageV1) -> Result<usize> {
+    pub fn uninitialized(&self) -> bool {
+        self.seeds == Default::default()
+    }
+
+    pub(crate) fn try_compute_size_if_needed(
+        acc_info: &AccountInfo,
+        swap_msg: SwapMessageV1,
+    ) -> Result<usize> {
+        if acc_info.data_is_empty() {
+            Self::try_compute_size(swap_msg)
+        } else {
+            Ok(acc_info.data_len())
+        }
+    }
+
+    fn try_compute_size(swap_msg: SwapMessageV1) -> Result<usize> {
         const FIXED: usize = 8 // DISCRIMINATOR
             + StagedInboundSeeds::INIT_SPACE
             + StagedInboundInfo::INIT_SPACE
@@ -54,17 +69,6 @@ impl StagedInbound {
                 .checked_add(FIXED)
                 .ok_or(error!(SwapLayerError::PayloadTooLarge)),
             _ => err!(SwapLayerError::InvalidRedeemMode),
-        }
-    }
-
-    pub fn try_compute_size_if_needed(
-        acc_info: &AccountInfo,
-        swap_msg: SwapMessageV1,
-    ) -> Result<usize> {
-        if acc_info.data_is_empty() {
-            Self::try_compute_size(swap_msg)
-        } else {
-            Ok(acc_info.data_len())
         }
     }
 }

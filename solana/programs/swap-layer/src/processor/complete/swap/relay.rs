@@ -43,7 +43,7 @@ pub fn complete_swap_relay<'a, 'b, 'c, 'info>(
 where
     'c: 'info,
 {
-    let swap_msg = ctx.accounts.complete_swap.read_message_unchecked();
+    let (_, _, swap_msg) = ctx.accounts.complete_swap.try_read_message_unchecked()?;
 
     match swap_msg.redeem_mode {
         RedeemMode::Relay {

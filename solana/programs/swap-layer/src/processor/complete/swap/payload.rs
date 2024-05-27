@@ -5,7 +5,10 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token, token, token_interface};
-use swap_layer_messages::{messages::SwapMessageV1, types::RedeemMode};
+use swap_layer_messages::{
+    messages::SwapMessageV1,
+    types::{OutputToken, RedeemMode},
+};
 
 #[derive(Accounts)]
 pub struct CompleteSwapPayload<'info> {
@@ -20,7 +23,7 @@ pub struct CompleteSwapPayload<'info> {
         payer = payer,
         space = StagedInbound::try_compute_size_if_needed(
             staged_inbound,
-            consume_swap_layer_fill.read_message_unchecked()
+            consume_swap_layer_fill.try_read_message_unchecked()?.2
         )?,
         seeds = [
             StagedInbound::SEED_PREFIX,
@@ -75,20 +78,24 @@ where
     let staged_inbound = &mut ctx.accounts.staged_inbound;
 
     // Set the staged transfer if it hasn't been set yet.
-    if staged_inbound.staged_by == Pubkey::default() {
+    if staged_inbound.uninitialized() {
+        let (
+            source_chain,
+            _,
+            SwapMessageV1 {
+                recipient,
+                redeem_mode,
+                output_token,
+            },
+        ) = ctx
+            .accounts
+            .consume_swap_layer_fill
+            .try_read_message_unchecked()?;
+
         let in_amount = ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
             ctx.accounts.src_swap_token.as_ref().as_ref(),
             &ctx.accounts.token_program,
         )?;
-
-        let SwapMessageV1 {
-            recipient,
-            redeem_mode,
-            output_token,
-        } = ctx
-            .accounts
-            .consume_swap_layer_fill
-            .read_message_unchecked();
 
         match redeem_mode {
             RedeemMode::Payload { sender, buf } => staged_inbound.set_inner(StagedInbound {
@@ -99,10 +106,10 @@ where
                 info: StagedInboundInfo {
                     custody_token: ctx.accounts.dst_swap_token.key(),
                     staged_by: ctx.accounts.payer.key(),
-                    source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
+                    source_chain,
                     sender,
                     recipient: Pubkey::from(recipient),
-                    is_native: false,
+                    is_native: matches!(&output_token, OutputToken::Gas(_)),
                 },
                 recipient_payload: buf.into(),
             }),
@@ -116,7 +123,6 @@ where
                 authority: ctx.accounts.staged_inbound.as_ref().as_ref(),
                 src_swap_token: &ctx.accounts.src_swap_token,
                 dst_swap_token: &ctx.accounts.dst_swap_token,
-                dst_mint: &ctx.accounts.dst_mint,
                 token_program: &ctx.accounts.token_program,
                 system_program: &ctx.accounts.system_program,
                 dst_token_program: &ctx.accounts.dst_token_program,

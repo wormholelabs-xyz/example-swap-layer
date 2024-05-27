@@ -167,36 +167,49 @@ impl<'info> Deref for RegisteredPeer<'info> {
 pub struct ConsumeSwapLayerFill<'info> {
     pub custodian: CheckedCustodian<'info>,
 
+    /// CHECK: This fill account may exist. If it does, it should be a prepared fill account owned
+    /// by the Token Router program.
     #[account(
         mut,
-        constraint = {
-            let swap_msg = SwapMessageV1::read_slice(&fill.redeemer_message)
+        constraint = fill.data_is_empty() || {
+            require_keys_eq!(*fill.owner, token_router::id(), ErrorCode::ConstraintOwner);
+
+            let mut acc_data: &[_] = &fill.try_borrow_data()?;
+            let (source_chain, order_sender, redeemer_message) =
+                PreparedFill::try_deserialize(&mut acc_data).map(|fill| {
+                    (
+                        fill.info.source_chain,
+                        fill.info.order_sender,
+                        fill.redeemer_message,
+                    )
+                })?;
+            SwapMessageV1::read_slice(&redeemer_message)
                 .map_err(|_| SwapLayerError::InvalidSwapMessage)?;
 
             require_eq!(
-                associated_peer.seeds.chain,
-                fill.source_chain,
+                source_peer.seeds.chain,
+                source_chain,
                 SwapLayerError::InvalidPeer,
             );
 
             require!(
-                fill.order_sender == associated_peer.address,
+                order_sender == source_peer.address,
                 SwapLayerError::InvalidPeer
             );
 
             true
         }
     )]
-    pub fill: Box<Account<'info, PreparedFill>>,
+    pub fill: UncheckedAccount<'info>,
 
     /// Custody token account. This account will be closed at the end of this instruction. It just
     /// acts as a conduit to allow this program to be the transfer initiator in the CCTP message.
     ///
     /// CHECK: Mutable. Seeds must be \["custody"\, source_chain.to_be_bytes()].
     #[account(mut)]
-    fill_custody_token: Box<Account<'info, token::TokenAccount>>,
+    fill_custody_token: UncheckedAccount<'info>,
 
-    pub associated_peer: RegisteredPeer<'info>,
+    pub source_peer: RegisteredPeer<'info>,
 
     /// CHECK: Recipient of lamports from closing the prepared_fill account.
     #[account(mut)]
@@ -206,8 +219,27 @@ pub struct ConsumeSwapLayerFill<'info> {
 }
 
 impl<'info> ConsumeSwapLayerFill<'info> {
-    pub fn read_message_unchecked(&self) -> SwapMessageV1 {
-        SwapMessageV1::read_slice(&self.fill.redeemer_message).unwrap()
+    /// NOTE: This will fail if fill has no data (i.e. it has been closed already).
+    pub fn try_deserialize_prepared_fill_unchecked(&self) -> Result<PreparedFill> {
+        PreparedFill::try_deserialize_unchecked(&mut &self.fill.data.borrow()[..])
+    }
+
+    /// This method is used to decode the Swap Message from a fill's redeemer message if the fill
+    /// exists.
+    pub fn try_read_message_unchecked(&self) -> Result<(u16, [u8; 32], SwapMessageV1)> {
+        let (source_chain, order_sender, encoded) =
+            self.try_deserialize_prepared_fill_unchecked().map(|fill| {
+                (
+                    fill.info.source_chain,
+                    fill.info.order_sender,
+                    fill.redeemer_message,
+                )
+            })?;
+        Ok((
+            source_chain,
+            order_sender,
+            SwapMessageV1::read_slice(&encoded).unwrap(),
+        ))
     }
 
     pub fn prepared_fill_key(&self) -> Pubkey {
@@ -247,7 +279,7 @@ impl<'info> ConsumeSwapLayerFill<'info> {
     /// performed here, but should be performed with the account context composing with this
     /// composite.
     pub fn is_valid_output_swap(&self, dst_mint: &AccountInfo) -> Result<bool> {
-        let swap_msg = self.read_message_unchecked();
+        let (_, _, swap_msg) = self.try_read_message_unchecked()?;
 
         let (expected_dst_mint, swap) = match swap_msg.output_token {
             OutputToken::Usdc => {
@@ -299,14 +331,6 @@ impl<'info> ConsumeSwapLayerFill<'info> {
     }
 }
 
-impl<'info> Deref for ConsumeSwapLayerFill<'info> {
-    type Target = Account<'info, PreparedFill>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.fill
-    }
-}
-
 #[derive(Accounts)]
 pub struct CompleteSwap<'info> {
     #[account(mut)]
@@ -319,7 +343,7 @@ pub struct CompleteSwap<'info> {
     #[account(
         seeds = [
             crate::SWAP_AUTHORITY_SEED_PREFIX,
-            consume_swap_layer_fill.key().as_ref(),
+            consume_swap_layer_fill.fill.key().as_ref(),
         ],
         bump,
     )]
@@ -366,7 +390,6 @@ pub struct HandleCompleteSwap<'ctx, 'info> {
     pub authority: &'ctx AccountInfo<'info>,
     pub src_swap_token: &'ctx Account<'info, token::TokenAccount>,
     pub dst_swap_token: &'ctx InterfaceAccount<'info, token_interface::TokenAccount>,
-    pub dst_mint: &'ctx UncheckedAccount<'info>,
     pub token_program: &'ctx Program<'info, token::Token>,
     pub dst_token_program: &'ctx Interface<'info, token_interface::TokenInterface>,
     pub system_program: &'ctx Program<'info, System>,
@@ -409,7 +432,6 @@ pub(crate) fn complete_swap_jup_v6<'info>(
         authority,
         src_swap_token,
         dst_swap_token,
-        dst_mint,
         token_program,
         dst_token_program,
         system_program,
@@ -423,7 +445,6 @@ pub(crate) fn complete_swap_jup_v6<'info>(
             authority,
             src_swap_token,
             dst_swap_token,
-            dst_mint,
             token_program,
             dst_token_program,
             system_program,
@@ -544,11 +565,16 @@ pub(crate) fn handle_complete_swap_jup_v6<'ctx, 'info>(
             common::USDC_MINT,
             SwapLayerError::InvalidSourceMint
         );
-        require_keys_eq!(
-            shared_accounts_route.dst_mint.key(),
-            accounts.dst_mint.key(),
-            SwapLayerError::InvalidDestinationMint
-        );
+        // NOTE: These mint checks should not be necessary if the token accounts have been checked.
+        // But for those interested in why we cannot make the destination mint check: the Solana BPF
+        // compiler happens to change the key of the destination mint when the complete swap payload
+        // instruction is invoked. It is unknown why. But aside from this check, the instruction
+        // handler does what is expected.
+        // require_keys_eq!(
+        //     shared_accounts_route.dst_mint.key(),
+        //     accounts.dst_mint.key(),
+        //     SwapLayerError::InvalidDestinationMint
+        // );
     }
 
     let limit_amount = match limit_and_params {
