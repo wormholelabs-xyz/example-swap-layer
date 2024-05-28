@@ -219,8 +219,13 @@ pub struct ConsumeSwapLayerFill<'info> {
 }
 
 impl<'info> ConsumeSwapLayerFill<'info> {
+    pub fn consumed(&self) -> bool {
+        self.fill.data_is_empty()
+    }
+
     /// NOTE: This will fail if fill has no data (i.e. it has been closed already).
     pub fn try_deserialize_prepared_fill_unchecked(&self) -> Result<PreparedFill> {
+        msg!("try_deserialize_prepared_fill_unchecked");
         PreparedFill::try_deserialize_unchecked(&mut &self.fill.data.borrow()[..])
     }
 

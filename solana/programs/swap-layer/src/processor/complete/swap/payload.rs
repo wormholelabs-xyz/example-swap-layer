@@ -15,7 +15,10 @@ pub struct CompleteSwapPayload<'info> {
     #[account(mut)]
     payer: Signer<'info>,
 
-    #[account(constraint = consume_swap_layer_fill.is_valid_output_swap(&dst_mint)?)]
+    #[account(constraint = {
+        consume_swap_layer_fill.consumed()
+            || consume_swap_layer_fill.is_valid_output_swap(&dst_mint)?
+    })]
     consume_swap_layer_fill: ConsumeSwapLayerFill<'info>,
 
     #[account(
