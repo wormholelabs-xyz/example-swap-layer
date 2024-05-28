@@ -40,10 +40,6 @@ pub struct StagedInbound {
 impl StagedInbound {
     pub const SEED_PREFIX: &'static [u8] = b"staged-inbound";
 
-    pub fn uninitialized(&self) -> bool {
-        self.seeds == Default::default()
-    }
-
     pub fn try_compute_size(swap_msg: SwapMessageV1) -> Result<usize> {
         const FIXED: usize = 8 // DISCRIMINATOR
             + StagedInboundSeeds::INIT_SPACE
