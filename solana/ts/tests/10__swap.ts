@@ -1792,6 +1792,184 @@ describe("Jupiter V6 Testing", () => {
                 );
             });
 
+            it("Cannot Swap USDC Override (Invalid Recipient)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const { limitAmount } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 198_800_000n,
+                    dstMint,
+                    slippageBps: 15,
+                });
+                const outputToken: OutputToken = { type: "Usdc" };
+
+                const amountIn = 200_000_000n;
+                const { preparedFill, recipient } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        outputTokenOverride: "Other",
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidRecipient",
+                    },
+                );
+            });
+
+            it("Cannot Swap USDC Override (Invalid Redeem Mode)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const quotedAmountOut = 198_800_000n;
+                const { limitAmount } = newQuotedSwapOutputToken({
+                    quotedAmountOut,
+                    dstMint,
+                    slippageBps: 15,
+                });
+                const outputToken: OutputToken = { type: "Usdc" };
+                const redeemMode: RedeemMode = {
+                    mode: "Payload",
+                    sender: toUniversal("Ethereum", "0x000000000000000000000000000000000000d00d"),
+                    buf: Buffer.from("All your base are belong to us."),
+                };
+
+                const amountIn = 200_000_000n;
+                const { preparedFill } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        redeemMode,
+                        amountIn,
+                        recipient: payer.publicKey,
+                    },
+                    false,
+                );
+
+                // Fetch amount from prepared fill.
+                const preparedData = await tokenRouter.preparedCustodyTokenAddress(preparedFill);
+                const { amount: custodyAmount } = await splToken.getAccount(
+                    connection,
+                    preparedData,
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: payer.publicKey,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        outputTokenOverride: "Other",
+                        inAmount: custodyAmount,
+                        quotedAmountOut,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidRedeemMode",
+                    },
+                );
+            });
+
+            it("Cannot Swap USDC Override (Invalid Swap In Amount)", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const quotedAmountOut = 198_800_000n;
+                const { limitAmount } = newQuotedSwapOutputToken({
+                    quotedAmountOut,
+                    dstMint,
+                    slippageBps: 15,
+                });
+                const outputToken: OutputToken = { type: "Usdc" };
+
+                const amountIn = 200_000_000n;
+                const { preparedFill } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                        recipient: payer.publicKey,
+                    },
+                    false,
+                );
+
+                // NOTE: Don't modify the inAmount.
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: payer.publicKey,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        outputTokenOverride: "Other",
+                        quotedAmountOut,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        errorMsg: "InvalidSwapInAmount",
+                    },
+                );
+            });
+
+            it("Other (USDT) USDC Override", async function () {
+                const dstMint = USDT_MINT_ADDRESS;
+                const quotedAmountOut = 198_800_000n;
+                const { limitAmount } = newQuotedSwapOutputToken({
+                    quotedAmountOut,
+                    dstMint,
+                    slippageBps: 15,
+                });
+                const outputToken: OutputToken = { type: "Usdc" };
+
+                const amountIn = 200_000_000n;
+                const { preparedFill } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        outputToken,
+                        amountIn,
+                        recipient: payer.publicKey,
+                    },
+                    false,
+                );
+
+                // Fetch amount from prepared fill.
+                const preparedData = await tokenRouter.preparedCustodyTokenAddress(preparedFill);
+                const { amount: custodyAmount } = await splToken.getAccount(
+                    connection,
+                    preparedData,
+                );
+
+                await completeSwapDirectForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        recipient: payer.publicKey,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        outputTokenOverride: "Other",
+                        inAmount: custodyAmount,
+                        quotedAmountOut,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                    },
+                );
+            });
+
             it("Other (USDT) via Whirlpool", async function () {
                 const dstMint = USDT_MINT_ADDRESS;
                 const { limitAmount, outputToken } = newQuotedSwapOutputToken({
@@ -2139,6 +2317,9 @@ describe("Jupiter V6 Testing", () => {
         },
         opts: ForTestOpts & {
             limitAmount: bigint;
+            outputTokenOverride?: string;
+            inAmount?: bigint;
+            quotedAmountOut?: bigint;
             swapResponseModifier: (
                 tokenOwner: PublicKey,
                 opts: jupiterV6.ModifySharedAccountsRouteOpts,
@@ -2146,12 +2327,14 @@ describe("Jupiter V6 Testing", () => {
         },
     ): Promise<undefined> {
         const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts);
-        const { limitAmount, swapResponseModifier } = otherOpts;
+        const { limitAmount, outputTokenOverride, swapResponseModifier } = otherOpts;
 
         const { instruction: cpiInstruction, destinationMint } = await swapResponseModifier(
             swapLayer.swapAuthorityAddress(accounts.preparedFill),
             {
                 cpi: true,
+                inAmount: opts.inAmount,
+                quotedOutAmount: opts.quotedAmountOut,
             },
         );
         const expectedDstMint = accounts.dstMint ?? splToken.NATIVE_MINT;
@@ -2183,7 +2366,7 @@ describe("Jupiter V6 Testing", () => {
         const { redeemerMessage } = await tokenRouter.fetchPreparedFill(accounts.preparedFill);
         const outputToken = decodeSwapLayerMessage(redeemerMessage).outputToken;
 
-        if (outputToken.type === "Gas") {
+        if (outputToken.type === "Gas" || outputTokenOverride === "Gas") {
             const balanceBefore = await connection.getBalance(accounts.recipient).then(BigInt);
 
             await expectIxOk(connection, ixs, signers, {
@@ -2192,7 +2375,7 @@ describe("Jupiter V6 Testing", () => {
 
             const balanceAfter = await connection.getBalance(accounts.recipient).then(BigInt);
             assert.isTrue(balanceAfter - balanceBefore >= limitAmount);
-        } else if (outputToken.type === "Other") {
+        } else if (outputToken.type === "Other" || outputTokenOverride === "Other") {
             const dstToken = splToken.getAssociatedTokenAddressSync(
                 expectedDstMint,
                 accounts.recipient,
