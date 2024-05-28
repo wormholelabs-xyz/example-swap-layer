@@ -155,20 +155,20 @@ export class SwapLayerProgram {
         accounts: {
             preparedFill: PublicKey;
             beneficiary: PublicKey;
-            associatedPeer?: PublicKey;
+            sourcePeer?: PublicKey;
         },
         opts: { sourceChain?: wormholeSdk.ChainId } = {},
     ): Promise<{
         custodian: CheckedCustodianComposite;
         fill: PublicKey;
         fillCustodyToken: PublicKey;
-        associatedPeer: RegisteredPeerComposite;
+        sourcePeer: RegisteredPeerComposite;
         beneficiary: PublicKey;
         tokenRouterProgram: PublicKey;
     }> {
         const { preparedFill, beneficiary } = accounts;
 
-        let { associatedPeer: peer } = accounts;
+        let { sourcePeer: peer } = accounts;
         let { sourceChain } = opts;
 
         const tokenRouter = this.tokenRouterProgram();
@@ -184,7 +184,7 @@ export class SwapLayerProgram {
             custodian: this.checkedCustodianComposite(),
             fill: preparedFill,
             fillCustodyToken: tokenRouter.preparedCustodyTokenAddress(preparedFill),
-            associatedPeer: { peer },
+            sourcePeer: { peer },
             beneficiary,
             tokenRouterProgram: tokenRouter.ID,
         };
@@ -787,7 +787,7 @@ export class SwapLayerProgram {
                     {
                         preparedFill,
                         beneficiary,
-                        associatedPeer: peer,
+                        sourcePeer: peer,
                     },
                     { sourceChain },
                 ),
@@ -826,7 +826,7 @@ export class SwapLayerProgram {
                     {
                         preparedFill,
                         beneficiary,
-                        associatedPeer: peer,
+                        sourcePeer: peer,
                     },
                     { sourceChain },
                 ),
@@ -861,7 +861,7 @@ export class SwapLayerProgram {
                     {
                         preparedFill,
                         beneficiary,
-                        associatedPeer: peer,
+                        sourcePeer: peer,
                     },
                     { sourceChain },
                 ),
@@ -1025,10 +1025,12 @@ export class SwapLayerProgram {
         },
         args: {
             cpiInstruction: TransactionInstruction;
+            sourceChain?: ChainId;
         },
     ): Promise<TransactionInstruction> {
         const { payer, preparedFill } = accounts;
-        const { cpiInstruction } = args;
+        const { cpiInstruction, sourceChain } = args;
+        console.log("sourceChain...", sourceChain);
 
         let { beneficiary, dstMint, dstTokenProgram } = accounts;
         beneficiary ??= payer;
@@ -1049,10 +1051,13 @@ export class SwapLayerProgram {
             .completeSwapPayload(cpiInstruction.data)
             .accounts({
                 payer,
-                consumeSwapLayerFill: await this.consumeSwapLayerFillComposite({
-                    preparedFill,
-                    beneficiary,
-                }),
+                consumeSwapLayerFill: await this.consumeSwapLayerFillComposite(
+                    {
+                        preparedFill,
+                        beneficiary,
+                    },
+                    { sourceChain },
+                ),
                 stagedInbound,
                 srcSwapToken,
                 dstSwapToken,

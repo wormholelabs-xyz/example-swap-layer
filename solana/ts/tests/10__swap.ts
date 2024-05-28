@@ -1153,6 +1153,8 @@ describe("Jupiter V6 Testing", () => {
                     },
                 );
 
+                const preparedFillData = await tokenRouter.fetchPreparedFill(preparedFill);
+
                 await completeSwapPayloadForTest(
                     {
                         payer: payer.publicKey,
@@ -1167,6 +1169,105 @@ describe("Jupiter V6 Testing", () => {
 
                 // Save for later.
                 localVariables.set("preparedFill", preparedFill);
+                localVariables.set("preparedFillData", preparedFillData);
+                localVariables.set("limitAmount", limitAmount);
+            });
+
+            it("Using Prepared Fill from Previous Test (USDT) via Whirlpool is No-op", async function () {
+                const preparedFill = localVariables.get("preparedFill") as PublicKey;
+                const preparedFillData = localVariables.get(
+                    "preparedFillData",
+                ) as tokenRouterSdk.PreparedFill;
+                const limitAmount = localVariables.get("limitAmount") as bigint;
+
+                await completeSwapPayloadForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        dstMint: USDT_MINT_ADDRESS,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        preparedFillData,
+                    },
+                );
+            });
+
+            it("Other (WSOL) via Phoenix V1", async function () {
+                const dstMint = splToken.NATIVE_MINT;
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    dstMint,
+                    slippageBps: 150,
+                });
+
+                const amountIn = 300_000_000n;
+                const { preparedFill } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        dstMint,
+                        redeemMode: {
+                            mode: "Payload",
+                            sender: toUniversal(
+                                "Ethereum",
+                                "0x000000000000000000000000000000000000d00d",
+                            ),
+                            buf: Buffer.from("All your base are belong to us."),
+                        },
+                        outputToken,
+                        amountIn,
+                    },
+                );
+
+                await completeSwapPayloadForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                        dstMint,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
+            });
+
+            it("Gas via Phoenix V1", async function () {
+                const { limitAmount, outputToken } = newQuotedSwapOutputToken({
+                    quotedAmountOut: 2_000_000_000n,
+                    slippageBps: 150,
+                });
+
+                const amountIn = 300_000_000n;
+                const { preparedFill } = await redeemSwapLayerFastFillForTest(
+                    { payer: payer.publicKey },
+                    emittedEvents,
+                    {
+                        outputToken,
+                        redeemMode: {
+                            mode: "Payload",
+                            sender: toUniversal(
+                                "Ethereum",
+                                "0x000000000000000000000000000000000000d00d",
+                            ),
+                            buf: Buffer.from("All your base are belong to us."),
+                        },
+                        amountIn,
+                    },
+                );
+
+                await completeSwapPayloadForTest(
+                    {
+                        payer: payer.publicKey,
+                        preparedFill,
+                    },
+                    {
+                        limitAmount,
+                        swapResponseModifier: modifyUsdcToWsolSwapResponseForTest,
+                    },
+                );
             });
         });
     });
@@ -1183,10 +1284,14 @@ describe("Jupiter V6 Testing", () => {
         let { dstMint, slippageBps, deadline, dexProgramId } = opts;
         dstMint ??= null;
         slippageBps ??= 0;
+        if (slippageBps > 10_000) {
+            throw new Error("Slippage must be less than or equal to 10000 (100%)");
+        }
+
         deadline ??= 0;
         dexProgramId ??= null;
 
-        const limitAmount = (quotedAmountOut * (10000n - BigInt(slippageBps))) / 10000n;
+        const limitAmount = (quotedAmountOut * (10_000n - BigInt(slippageBps))) / 10_000n;
         const swap = {
             deadline,
             limitAmount,
@@ -1419,10 +1524,18 @@ describe("Jupiter V6 Testing", () => {
                 tokenOwner: PublicKey,
                 opts: jupiterV6.ModifySharedAccountsRouteOpts,
             ) => Promise<jupiterV6.ModifiedSharedAccountsRoute>;
+            preparedFillData?: tokenRouterSdk.PreparedFill;
+            expectNoop?: boolean;
         },
     ): Promise<undefined> {
         const [{ signers, errorMsg }, otherOpts] = setDefaultForTestOpts(opts);
         const { limitAmount, swapResponseModifier } = otherOpts;
+
+        let { preparedFillData, expectNoop } = otherOpts;
+        if (preparedFillData === undefined) {
+            preparedFillData = await tokenRouter.fetchPreparedFill(accounts.preparedFill);
+        }
+        expectNoop ??= false;
 
         const stagedInbound = swapLayer.stagedInboundAddress(accounts.preparedFill);
         const {
@@ -1445,7 +1558,8 @@ describe("Jupiter V6 Testing", () => {
             ),
         );
 
-        const ix = await swapLayer.completeSwapPayloadIx(accounts, { cpiInstruction });
+        const sourceChain = preparedFillData.info.sourceChain as ChainId;
+        const ix = await swapLayer.completeSwapPayloadIx(accounts, { cpiInstruction, sourceChain });
 
         const ixs = [
             ComputeBudgetProgram.setComputeUnitLimit({
@@ -1468,9 +1582,7 @@ describe("Jupiter V6 Testing", () => {
             return;
         }
 
-        const { info: preparedFillInfo, redeemerMessage } = await tokenRouter.fetchPreparedFill(
-            accounts.preparedFill,
-        );
+        const { info: preparedFillInfo, redeemerMessage } = preparedFillData;
 
         await expectIxOk(connection, ixs, signers, {
             addressLookupTableAccounts,
