@@ -3,7 +3,7 @@ use swap_layer_messages::{messages::SwapMessageV1, types::RedeemMode};
 
 use crate::error::SwapLayerError;
 
-#[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, InitSpace)]
+#[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, Default, PartialEq, Eq, InitSpace)]
 pub struct StagedInboundSeeds {
     pub prepared_fill: Pubkey,
     pub bump: u8,
@@ -39,6 +39,10 @@ pub struct StagedInbound {
 
 impl StagedInbound {
     pub const SEED_PREFIX: &'static [u8] = b"staged-inbound";
+
+    pub fn uninitialized(&self) -> bool {
+        self.seeds == Default::default()
+    }
 
     pub fn try_compute_size(swap_msg: SwapMessageV1) -> Result<usize> {
         const FIXED: usize = 8 // DISCRIMINATOR

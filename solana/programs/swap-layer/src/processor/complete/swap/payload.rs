@@ -5,7 +5,10 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token, token, token_interface};
-use swap_layer_messages::{messages::SwapMessageV1, types::RedeemMode};
+use swap_layer_messages::{
+    messages::SwapMessageV1,
+    types::{OutputToken, RedeemMode},
+};
 
 #[derive(Accounts)]
 pub struct CompleteSwapPayload<'info> {
@@ -75,7 +78,7 @@ where
     let staged_inbound = &mut ctx.accounts.staged_inbound;
 
     // Set the staged transfer if it hasn't been set yet.
-    if staged_inbound.staged_by == Pubkey::default() {
+    if staged_inbound.uninitialized() {
         let in_amount = ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
             ctx.accounts.src_swap_token.as_ref().as_ref(),
             &ctx.accounts.token_program,
@@ -102,7 +105,7 @@ where
                     source_chain: ctx.accounts.consume_swap_layer_fill.fill.source_chain,
                     sender,
                     recipient: Pubkey::from(recipient),
-                    is_native: false,
+                    is_native: matches!(&output_token, OutputToken::Gas(_)),
                 },
                 recipient_payload: buf.into(),
             }),

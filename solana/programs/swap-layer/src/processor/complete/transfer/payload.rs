@@ -68,7 +68,7 @@ pub fn complete_transfer_payload(ctx: Context<CompleteTransferPayload>) -> Resul
     let staged_inbound = &mut ctx.accounts.staged_inbound;
 
     // Set the staged transfer if it hasn't been set yet.
-    if staged_inbound.staged_by == Pubkey::default() {
+    if staged_inbound.uninitialized() {
         // Consume the prepared fill, and send the tokens to the staged custody account.
         ctx.accounts.consume_swap_layer_fill.consume_prepared_fill(
             ctx.accounts.staged_custody_token.as_ref().as_ref(),
