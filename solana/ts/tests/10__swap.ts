@@ -1,5 +1,6 @@
 import * as splToken from "@solana/spl-token";
 import {
+    AddressLookupTableAccount,
     ComputeBudgetProgram,
     Connection,
     Keypair,
@@ -39,6 +40,7 @@ import * as tokenRouterSdk from "@wormhole-foundation/example-liquidity-layer-so
 import { VaaAccount } from "@wormhole-foundation/example-liquidity-layer-solana/wormhole";
 import { Chain, ChainId, toChainId } from "@wormhole-foundation/sdk-base";
 import { UniversalAddress, toNative, toUniversal } from "@wormhole-foundation/sdk-definitions";
+import "@wormhole-foundation/sdk-solana/address";
 import { assert } from "chai";
 import * as fs from "fs";
 import * as jupiterV6 from "../src/jupiterV6";
@@ -49,26 +51,42 @@ import {
     StagedOutboundInfo,
     SwapLayerMessage,
     SwapLayerProgram,
+    TEST_RELAY_PARAMS,
     calculateRelayerFee,
     decodeSwapLayerMessage,
     denormalizeGasDropOff,
     encodeSwapLayerMessage,
     localnet,
-    TEST_RELAY_PARAMS,
 } from "../src/swapLayer";
 import {
+    BERN_MINT_ADDRESS,
+    BONK_MINT_ADDRESS,
+    FEE_UPDATER_KEYPAIR,
     REGISTERED_PEERS,
     USDT_MINT_ADDRESS,
+    createAta,
     createLut,
     tryNativeToUint8Array,
     whichTokenProgram,
-    FEE_UPDATER_KEYPAIR,
 } from "./helpers";
 
 const JUPITER_V6_LUT_ADDRESSES = [
     new PublicKey("GxS6FiQ3mNnAar9HGQ6mxP7t6FcwmHkU7peSeQDUHmpN"),
     new PublicKey("HsLPzBjqK3SUKQZwHdd2QHVc9cioPrsHNw9GcUDs7WL7"),
 ];
+
+const JUPITER_V6_LUT_ADDRESSES_BERN = [
+    new PublicKey("2aGZxQimbQhRsvQhjvjXE35vZGJP2ajBSrUggoEwGGy4"),
+    new PublicKey("8Vaso6eE1pWktDHwy2qQBB1fhjmBgwzhoXQKe1sxtFjn"),
+    new PublicKey("BpQ5uMzQNWNgBCRNf6jffChhYMX5XVZuaoM4Rx16NCdf"),
+    new PublicKey("D6XNrxMsDoABJVVY5YyHxJuAB6WGzYCXpZeKyNtqu2v4"),
+];
+
+// const JUPITER_V6_LUT_ADDRESSES_BERN_OUT = [
+//     new PublicKey("55ir29U8MrZbGBV63XbbweEDXP9DSx7eNenc7hnTM81E"),
+//     new PublicKey("5ePPDZP3ZAic796eFUDyHGtyYvynyFbpJ8oqTy2ydxvy"),
+//     new PublicKey("2aGZxQimbQhRsvQhjvjXE35vZGJP2ajBSrUggoEwGGy4"),
+// ];
 
 describe("Jupiter V6 Testing", () => {
     const connection = new Connection(LOCALHOST, "processed");
@@ -82,12 +100,10 @@ describe("Jupiter V6 Testing", () => {
     const tokenRouter = swapLayer.tokenRouterProgram();
     const matchingEngine = tokenRouter.matchingEngineProgram();
 
-    const luts: [PublicKey, PublicKey, PublicKey, PublicKey] = [
-        PublicKey.default,
-        PublicKey.default,
-        JUPITER_V6_LUT_ADDRESSES[0],
-        JUPITER_V6_LUT_ADDRESSES[1],
-    ];
+    const luts: PublicKey[] = [PublicKey.default, PublicKey.default];
+    for (let i = 0; i < JUPITER_V6_LUT_ADDRESSES.length; ++i) {
+        luts.push(JUPITER_V6_LUT_ADDRESSES[i]);
+    }
 
     let testCctpNonce = 2n ** 64n - 1n;
 
@@ -100,21 +116,7 @@ describe("Jupiter V6 Testing", () => {
         before("Generate ATAs", async function () {
             for (const mint of [swapLayer.usdcMint, USDT_MINT_ADDRESS, splToken.NATIVE_MINT]) {
                 for (let i = 0; i < 8; ++i) {
-                    const authority = jupiterV6.programAuthorityAddress(i);
-
-                    await expectIxOk(
-                        connection,
-                        [
-                            splToken.createAssociatedTokenAccountIdempotentInstruction(
-                                payer.publicKey,
-                                splToken.getAssociatedTokenAddressSync(mint, authority, true),
-                                authority,
-                                mint,
-                                splToken.TOKEN_PROGRAM_ID,
-                            ),
-                        ],
-                        [payer],
-                    );
+                    await createAta(connection, payer, mint, jupiterV6.programAuthorityAddress(i));
                 }
             }
 
@@ -201,27 +203,95 @@ describe("Jupiter V6 Testing", () => {
             }).then(invokeSharedAccountsRouteAsUser);
         });
 
+        it("User Swap USDC to Token-2022 Mint From Simulated Quote -- Multi Route", async function () {
+            const addressLookupTableAccounts = await Promise.all(
+                JUPITER_V6_LUT_ADDRESSES_BERN.map(async (lookupTableAddress) => {
+                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                    return resp.value;
+                }),
+            );
+
+            await modifyUsdcTo2022SwapResponseForTest(payer.publicKey, {
+                inAmount: 10_000_000n,
+                quotedOutAmount: 200_000_000n,
+                slippageBps: 1000,
+            }).then((modifyArgs) =>
+                invokeSharedAccountsRouteAsUser(modifyArgs, addressLookupTableAccounts),
+            );
+        });
+
+        it("User Swap Token-2022 Mint to USDC From Simulated Quote -- Multi Route", async function () {
+            const addressLookupTableAccounts = await Promise.all(
+                JUPITER_V6_LUT_ADDRESSES_BERN.map(async (lookupTableAddress) => {
+                    const resp = await connection.getAddressLookupTable(lookupTableAddress);
+                    return resp.value;
+                }),
+            );
+
+            await modify2022ToUsdcSwapResponseForTest(payer.publicKey, {
+                inAmount: 200_000_000n,
+                quotedOutAmount: 10_000_000n,
+                slippageBps: 1000,
+            }).then((modifyArgs) =>
+                invokeSharedAccountsRouteAsUser(modifyArgs, addressLookupTableAccounts),
+            );
+        });
+
         async function invokeSharedAccountsRouteAsUser(
             modifyArgs: jupiterV6.ModifiedSharedAccountsRoute,
+            addressLookupTableAccounts?: AddressLookupTableAccount[],
         ) {
             const {
                 instruction: ix,
                 sourceToken: srcToken,
                 destinationToken: dstToken,
                 minAmountOut,
+                sourceTokenProgram,
+                destinationTokenProgram,
             } = modifyArgs;
 
-            const { amount: srcBalanceBefore } = await splToken.getAccount(connection, srcToken);
-            const { amount: dstBalanceBefore } = await splToken.getAccount(connection, dstToken);
+            const { amount: srcBalanceBefore } = await splToken.getAccount(
+                connection,
+                srcToken,
+                undefined,
+                sourceTokenProgram,
+            );
+            const { amount: dstBalanceBefore } = await splToken.getAccount(
+                connection,
+                dstToken,
+                undefined,
+                destinationTokenProgram,
+            );
 
-            await expectIxOk(connection, [ix], [payer]);
+            const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+                units: 500_000,
+            });
+
+            await expectIxOk(connection, [computeIx, ix], [payer], { addressLookupTableAccounts });
 
             const decodedIxData = jupiterV6.decodeSharedAccountsRouteArgs(ix.data);
 
-            const { amount: srcBalanceAfter } = await splToken.getAccount(connection, srcToken);
-            assert.strictEqual(srcBalanceBefore - srcBalanceAfter, decodedIxData.inAmount);
+            const { amount: srcBalanceAfter } = await splToken.getAccount(
+                connection,
+                srcToken,
+                undefined,
+                sourceTokenProgram,
+            );
 
-            const { amount: dstBalanceAfter } = await splToken.getAccount(connection, dstToken);
+            // This math makes a crude assumption that the # of routes will result in more rounding
+            // errors. We can improve this calculation, but the amounts we are dealing with are so
+            // small.
+            const numRoutes = BigInt(decodedIxData.routePlan.length);
+            const srcBalanceChange = srcBalanceBefore - srcBalanceAfter;
+            assert.isTrue(srcBalanceChange >= decodedIxData.inAmount - numRoutes);
+            assert.isTrue(srcBalanceChange <= decodedIxData.inAmount);
+
+            const { amount: dstBalanceAfter } = await splToken.getAccount(
+                connection,
+                dstToken,
+                undefined,
+                destinationTokenProgram,
+            );
             assert.isTrue(dstBalanceAfter - dstBalanceBefore >= minAmountOut);
         }
     });
@@ -365,10 +435,10 @@ describe("Jupiter V6 Testing", () => {
                     },
                 );
 
-                const invalidToken = await splToken.getOrCreateAssociatedTokenAccount(
+                const invalidToken = await createAta(
                     connection,
                     payer,
-                    USDC_MINT_ADDRESS,
+                    swapLayer.usdcMint,
                     testRecipient.publicKey,
                 );
 
@@ -377,7 +447,7 @@ describe("Jupiter V6 Testing", () => {
                         payer: payer.publicKey,
                         stagedOutbound,
                         srcMint,
-                        usdcRefundToken: invalidToken.address,
+                        usdcRefundToken: invalidToken,
                     },
                     { cpiInstruction },
                     "usdc_refund_token. Error Code: ConstraintAddress",
@@ -687,18 +757,13 @@ describe("Jupiter V6 Testing", () => {
                     },
                 );
 
-                await splToken.getOrCreateAssociatedTokenAccount(
-                    connection,
-                    payer,
-                    USDC_MINT_ADDRESS,
-                    recipient,
-                );
+                await createAta(connection, payer, swapLayer.usdcMint, recipient);
 
                 const transferIx = await swapLayer.completeTransferRelayIx(
                     {
                         payer: payer.publicKey,
                         preparedFill,
-                        recipient: recipient,
+                        recipient,
                     },
                     toChainId("Ethereum"),
                 );
@@ -783,10 +848,10 @@ describe("Jupiter V6 Testing", () => {
                     },
                 );
 
-                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                const recipientToken = await createAta(
                     connection,
                     payer,
-                    USDC_MINT_ADDRESS,
+                    swapLayer.usdcMint,
                     recipient,
                 );
 
@@ -796,8 +861,8 @@ describe("Jupiter V6 Testing", () => {
                         payer: payer.publicKey,
                         preparedFill,
                         recipient: recipient,
-                        dstMint: USDC_MINT_ADDRESS,
-                        recipientToken: recipientToken.address,
+                        dstMint: swapLayer.usdcMint,
+                        recipientToken,
                     },
                     {
                         limitAmount,
@@ -918,10 +983,10 @@ describe("Jupiter V6 Testing", () => {
                     },
                 );
 
-                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                const recipientToken = await createAta(
                     connection,
                     payer,
-                    USDC_MINT_ADDRESS,
+                    swapLayer.usdcMint,
                     recipient,
                 );
 
@@ -932,7 +997,7 @@ describe("Jupiter V6 Testing", () => {
                         preparedFill,
                         recipient: recipient,
                         dstMint: USDC_MINT_ADDRESS,
-                        recipientToken: recipientToken.address,
+                        recipientToken,
                     },
                     {
                         limitAmount,
@@ -969,10 +1034,8 @@ describe("Jupiter V6 Testing", () => {
                 );
 
                 // Pass in payer token account instead.
-                const payerToken = await splToken.getOrCreateAssociatedTokenAccount(
-                    connection,
-                    payer,
-                    USDC_MINT_ADDRESS,
+                const payerToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
 
@@ -981,7 +1044,7 @@ describe("Jupiter V6 Testing", () => {
                         payer: payer.publicKey,
                         preparedFill,
                         recipient: recipient,
-                        recipientToken: payerToken.address,
+                        recipientToken: payerToken,
                         dstMint,
                     },
                     {
@@ -1019,10 +1082,10 @@ describe("Jupiter V6 Testing", () => {
                 );
 
                 // Pass in payer token account instead.
-                const recipientToken = await splToken.getOrCreateAssociatedTokenAccount(
+                const recipientToken = await createAta(
                     connection,
                     payer,
-                    USDC_MINT_ADDRESS,
+                    swapLayer.usdcMint,
                     recipient,
                 );
 
@@ -1031,7 +1094,7 @@ describe("Jupiter V6 Testing", () => {
                         payer: payer.publicKey,
                         preparedFill,
                         recipient: recipient,
-                        feeRecipientToken: recipientToken.address,
+                        feeRecipientToken: recipientToken,
                         dstMint,
                     },
                     {
@@ -1891,10 +1954,8 @@ describe("Jupiter V6 Testing", () => {
                 );
 
                 // Pass in payer token account instead.
-                const payerToken = await splToken.getOrCreateAssociatedTokenAccount(
-                    connection,
-                    payer,
-                    USDC_MINT_ADDRESS,
+                const payerToken = splToken.getAssociatedTokenAddressSync(
+                    swapLayer.usdcMint,
                     payer.publicKey,
                 );
 
@@ -1903,7 +1964,7 @@ describe("Jupiter V6 Testing", () => {
                         payer: payer.publicKey,
                         preparedFill,
                         recipient,
-                        recipientToken: payerToken.address,
+                        recipientToken: payerToken,
                         dstMint,
                     },
                     {
@@ -2880,28 +2941,8 @@ describe("Jupiter V6 Testing", () => {
         };
 
         // Generate a new token account for recipient.
-        const tokenProgram = await whichTokenProgram(connection, dstMint);
         if (createRecipientAta) {
-            const recipientToken = splToken.getAssociatedTokenAddressSync(
-                dstMint,
-                recipient,
-                false,
-                tokenProgram,
-            );
-
-            await expectIxOk(
-                connection,
-                [
-                    splToken.createAssociatedTokenAccountInstruction(
-                        payer.publicKey,
-                        recipientToken,
-                        recipient,
-                        dstMint,
-                        tokenProgram,
-                    ),
-                ],
-                [payer],
-            );
+            await createAta(connection, payer, dstMint, recipient);
         }
 
         let encodedRecipient = recipient;
@@ -3011,6 +3052,42 @@ describe("Jupiter V6 Testing", () => {
     ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
         const response = JSON.parse(
             fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/phoenix_v1_wsol_to_usdc.json`, {
+                encoding: "utf-8",
+            }),
+        );
+
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
+    }
+
+    async function modifyUsdcTo2022SwapResponseForTest(
+        tokenOwner: PublicKey,
+        opts: jupiterV6.ModifySharedAccountsRouteOpts,
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
+        const response = JSON.parse(
+            fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/multi_usdc_to_2022.json`, {
+                encoding: "utf-8",
+            }),
+        );
+
+        return jupiterV6.modifySharedAccountsRouteInstruction(
+            connection,
+            response,
+            tokenOwner,
+            opts,
+        );
+    }
+
+    async function modify2022ToUsdcSwapResponseForTest(
+        tokenOwner: PublicKey,
+        opts: jupiterV6.ModifySharedAccountsRouteOpts,
+    ): Promise<jupiterV6.ModifiedSharedAccountsRoute> {
+        const response = JSON.parse(
+            fs.readFileSync(`${__dirname}/jupiterV6SwapResponses/multi_2022_to_usdc.json`, {
                 encoding: "utf-8",
             }),
         );

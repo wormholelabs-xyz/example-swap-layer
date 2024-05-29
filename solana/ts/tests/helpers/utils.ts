@@ -1,3 +1,4 @@
+import * as splToken from "@solana/spl-token";
 import { AddressLookupTableProgram, Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { expectIxOk } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import { Chain } from "@wormhole-foundation/sdk-base";
@@ -37,4 +38,32 @@ export async function createLut(connection: Connection, payer: Keypair, addresse
 export async function whichTokenProgram(connection: Connection, interfaceAccount: PublicKey) {
     const accInfo = await connection.getAccountInfo(interfaceAccount);
     return accInfo.owner;
+}
+
+export async function createAta(
+    connection: Connection,
+    payer: Keypair,
+    mint: PublicKey,
+    owner: PublicKey,
+) {
+    const accInfo = await connection.getAccountInfo(mint);
+    const tokenProgram = accInfo.owner;
+
+    const recipientToken = splToken.getAssociatedTokenAddressSync(mint, owner, true, tokenProgram);
+
+    await expectIxOk(
+        connection,
+        [
+            splToken.createAssociatedTokenAccountIdempotentInstruction(
+                payer.publicKey,
+                recipientToken,
+                owner,
+                mint,
+                tokenProgram,
+            ),
+        ],
+        [payer],
+    );
+
+    return recipientToken;
 }
