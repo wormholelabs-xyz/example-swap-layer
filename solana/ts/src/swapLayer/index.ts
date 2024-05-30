@@ -1,7 +1,7 @@
+export * from "./consts";
 export * from "./messages";
 export * from "./relayerFees";
 export * from "./state";
-export * from "./consts";
 
 import * as wormholeSdk from "@certusone/wormhole-sdk";
 import { BN, Program } from "@coral-xyz/anchor";

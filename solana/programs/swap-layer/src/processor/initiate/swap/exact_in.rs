@@ -26,11 +26,12 @@ pub struct InitiateSwapExactIn<'info> {
     /// Staging for outbound transfer. This account has all of the instructions needed to initiate
     /// the transfer.
     ///
-    /// This account will be closed by the end of the instruction.
+    /// This account may be closed by the end of the instruction if there is no dust after the swap.
     #[account(mut)]
     staged_outbound: Account<'info, StagedOutbound>,
 
-    /// This custody token account will be closed by the end of the instruction.
+    /// This custody token account may be closed by the end of the instruction if there is no dust
+    /// after the swap.
     #[account(
         mut,
         token::mint = src_mint,
@@ -94,9 +95,6 @@ pub struct InitiateSwapExactIn<'info> {
     dst_swap_token: Box<Account<'info, token::TokenAccount>>,
 
     /// This account must be verified as the source mint for the swap.
-    ///
-    /// NOTE: This is mutable in case we need to burn residual tokens.
-    #[account(mut)]
     src_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     /// This account must be verified as the destination mint for the swap.

@@ -83,12 +83,6 @@ const JUPITER_V6_LUT_ADDRESSES_BERN = [
     new PublicKey("55ir29U8MrZbGBV63XbbweEDXP9DSx7eNenc7hnTM81E"),
 ];
 
-// const JUPITER_V6_LUT_ADDRESSES_BERN_OUT = [
-//     new PublicKey("55ir29U8MrZbGBV63XbbweEDXP9DSx7eNenc7hnTM81E"),
-//     new PublicKey("5ePPDZP3ZAic796eFUDyHGtyYvynyFbpJ8oqTy2ydxvy"),
-//     new PublicKey("2aGZxQimbQhRsvQhjvjXE35vZGJP2ajBSrUggoEwGGy4"),
-// ];
-
 describe("Jupiter V6 Testing", () => {
     const connection = new Connection(LOCALHOST, "processed");
 

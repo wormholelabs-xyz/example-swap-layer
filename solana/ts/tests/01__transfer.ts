@@ -45,6 +45,7 @@ import {
     StagedInbound,
     StagedOutbound,
     SwapLayerProgram,
+    TEST_RELAY_PARAMS,
     U32_MAX,
     UpdateRelayParametersArgs,
     calculateRelayerFee,
@@ -52,15 +53,8 @@ import {
     encodeOutputToken,
     encodeSwapLayerMessage,
     localnet,
-    TEST_RELAY_PARAMS,
 } from "../src/swapLayer";
-import {
-    FEE_UPDATER_KEYPAIR,
-    REGISTERED_PEERS,
-    USDT_MINT_ADDRESS,
-    createLut,
-    tryNativeToUint8Array,
-} from "./helpers";
+import { FEE_UPDATER_KEYPAIR, REGISTERED_PEERS, createLut, tryNativeToUint8Array } from "./helpers";
 
 const SOLANA_CHAIN_ID = toChainId("Solana");
 
