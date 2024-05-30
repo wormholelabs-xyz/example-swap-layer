@@ -20,17 +20,17 @@ export async function createLut(connection: Connection, payer: Keypair, addresse
 
     await expectIxOk(connection, [createIx], [payer]);
 
-    // Extend.
-    const extendIx = AddressLookupTableProgram.extendLookupTable({
-        payer: payer.publicKey,
-        authority: payer.publicKey,
-        lookupTable,
-        addresses,
-    });
+    for (let i = 0; i < addresses.length; i += 20) {
+        // Extend.
+        const extendIx = AddressLookupTableProgram.extendLookupTable({
+            payer: payer.publicKey,
+            authority: payer.publicKey,
+            lookupTable,
+            addresses: addresses.slice(i, i + 20),
+        });
 
-    await expectIxOk(connection, [extendIx], [payer], {
-        confirmOptions: { commitment: "finalized" },
-    });
+        await expectIxOk(connection, [extendIx], [payer]);
+    }
 
     return lookupTable;
 }

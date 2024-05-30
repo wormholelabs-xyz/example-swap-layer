@@ -3466,6 +3466,10 @@ describe("Swap Layer", () => {
                         const consumeIx = await swapLayer.releaseInboundIx({
                             recipient: payer.publicKey,
                             stagedInbound,
+                            dstToken: splToken.getAssociatedTokenAddressSync(
+                                swapLayer.usdcMint,
+                                payer.publicKey,
+                            ),
                         });
 
                         await expectIxErr(connection, [consumeIx], [payer], "ConstraintAddress");
@@ -3497,7 +3501,7 @@ describe("Swap Layer", () => {
                             recipient: recipient.publicKey,
                             beneficiary: beneficiary.publicKey,
                             stagedInbound,
-                            dstToken: dstToken,
+                            dstToken,
                         });
 
                         await expectIxOk(connection, [consumeIx], [recipient]);
