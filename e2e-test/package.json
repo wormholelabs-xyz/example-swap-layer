@@ -1,0 +1,22 @@
+{
+    "name": "swap-layer-e2e",
+    "version": "1.0.0",
+    "description": "Swap Layer EVM <> Solana end-to-end test",
+    "main": "index.js",
+    "scripts": {
+        "test": "bash sh/run_test.sh"
+    },
+    "dependencies": {
+        "@typechain/ethers-v5": "^11.1.2",
+        "@types/chai": "^4.3.16",
+        "@types/mocha": "^10.0.6",
+        "@types/node": "^20.12.13",
+        "chai": "^5.1.1",
+        "dotenv": "^16.4.5",
+        "ethers": "^5.7.2",
+        "mocha": "^10.4.0",
+        "prettier": "^3.2.5",
+        "ts-mocha": "^10.0.0",
+        "typechain": "^8.3.2"
+    }
+}
