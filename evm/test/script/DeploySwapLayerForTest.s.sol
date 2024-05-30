@@ -59,7 +59,7 @@ contract DeploySwapLayerForTest is Script {
     }
 
     function deploy(address tokenRouter) public {
-        swapLayerAddress = address(
+        address swapLayerAddress = address(
             new Proxy(
                 address(
                     new SwapLayer(
