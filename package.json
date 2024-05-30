@@ -25,6 +25,7 @@
     "wormhole"
   ],
   "workspaces": [
+    "e2e",
     "evm/ts-sdk",
     "solana"
   ]
