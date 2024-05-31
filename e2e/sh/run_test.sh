@@ -17,6 +17,7 @@ bash test/script/start_anvil.sh
 echo "Anvil instances started successfully."
 
 cd $ROOT/solana
+make anchor-test-setup
 anchor build -- --features integration-test
 cp target/deploy/swap_layer.so $ROOT/e2e/target/deploy
 
