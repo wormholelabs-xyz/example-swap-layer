@@ -8,65 +8,22 @@ import {
     OWNER_KEYPAIR,
     LOCALHOST,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
-import { uint64ToBN } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import { createAta } from "../../solana/ts/tests/helpers";
-import { parseSwapLayerEnvFile } from "./helpers";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
-
-const USDC_MINT_ADDRESS = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const REGISTERED_EVM_CHAINS = [
-    "Ethereum",
-    // "Avalanche",
-    // "Optimism",
-    // "Arbitrum",
-    "Base",
-    // "Polygon",
-] as const;
-
-const EVM_CONFIG = {
-    Ethereum: {
-        cctpDomain: 0,
-        ...parseSwapLayerEnvFile(`${__dirname}/../../evm/env/localnet/Ethereum.env`),
-        relayParams: {
-            baseFee: 1_500_000, // 1.5 USDC
-            nativeTokenPrice: uint64ToBN(69),
-            maxGasDropoff: 69,
-            gasDropoffMargin: 69,
-            executionParams: {
-                evm: {
-                    gasPrice: 69,
-                    gasPriceMargin: 69,
-                },
-            },
-            swapTimeLimit: { fastLimit: 30, finalizedLimit: 20 * 60 },
-        },
-    },
-    Base: {
-        cctpDomain: 6,
-        ...parseSwapLayerEnvFile(`${__dirname}/../../evm/env/localnet/Base.env`),
-        relayParams: {
-            baseFee: 69,
-            nativeTokenPrice: uint64ToBN(69),
-            maxGasDropoff: 69,
-            gasDropoffMargin: 69,
-            executionParams: {
-                evm: {
-                    gasPrice: 69,
-                    gasPriceMargin: 69,
-                },
-            },
-            swapTimeLimit: { fastLimit: 30, finalizedLimit: 20 * 60 },
-        },
-    },
-} as const;
+import {
+    EVM_CONFIG,
+    USDC_MINT_ADDRESS,
+    REGISTERED_EVM_CHAINS,
+    SOLANA_SWAP_LAYER_ID,
+} from "./helpers";
 
 describe("Setup", () => {
     const connection = new Connection(LOCALHOST, "confirmed");
 
     const swapLayer = new swapLayerSdk.SwapLayerProgram(
         connection,
-        "SwapLayer1111111111111111111111111111111111",
+        SOLANA_SWAP_LAYER_ID,
         USDC_MINT_ADDRESS,
     );
     const tokenRouter = swapLayer.tokenRouterProgram();
@@ -110,10 +67,6 @@ describe("Setup", () => {
                 await expectIxOk(connection, [ix], [payer, owner]);
             });
         }
-    });
-
-    describe("Token Router", function () {
-        // Nothing to do.
     });
 
     describe("Swap Layer", function () {
