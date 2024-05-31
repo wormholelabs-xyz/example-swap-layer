@@ -8,6 +8,8 @@
     },
     "dependencies": {
         "@solana/web3.js": "^1.91.6",
+        "@wormhole-foundation/example-liquidity-layer-definitions": "file:../lib/example-liquidity-layer/wormhole-foundation-example-liquidity-layer-definitions-0.0.1.tgz",
+        "@wormhole-foundation/example-liquidity-layer-solana": "file:../lib/example-liquidity-layer/wormhole-foundation-example-liquidity-layer-solana-0.0.1.tgz",
         "dotenv": "^16.4.5",
         "prettier": "^3.2.5"
     },
