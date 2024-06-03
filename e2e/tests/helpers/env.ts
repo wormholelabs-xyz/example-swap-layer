@@ -96,10 +96,12 @@ export async function circleContract(chain: Chain): Promise<{
     return { provider, wallet, tokenMessenger, messageTransmitter };
 }
 
-export async function usdcContract(chain: Chain) {
+export function usdcContract(chain: Chain) {
     return baseContract(
         chain,
         [
+            "function allowance(address owner, address spender) external view returns (uint256)",
+            "function approve(address spender, uint256 amount) returns (bool)",
             "function mint(address to, uint256 amount)",
             "function balanceOf(address account) external view returns (uint256)",
             "function transfer(address recipient, uint256 amount) external returns (bool)",
