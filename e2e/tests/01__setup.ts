@@ -16,6 +16,9 @@ import {
     USDC_MINT_ADDRESS,
     REGISTERED_EVM_CHAINS,
     SOLANA_SWAP_LAYER_ID,
+    overrideCircleAnvil,
+    overrideWormholeAnvil,
+    mintUsdcForTest,
 } from "./helpers";
 
 describe("Setup", () => {
@@ -113,6 +116,22 @@ describe("Setup", () => {
                     },
                 );
                 await expectIxOk(connection, [ix], [payer, owner]);
+            });
+        }
+    });
+
+    describe("Evm Network Setup", function () {
+        for (const chain of REGISTERED_EVM_CHAINS) {
+            it(`Modify Core Bridge (${chain})`, async () => {
+                await overrideWormholeAnvil(chain);
+            });
+
+            it(`Modify Circle Contracts (${chain})`, async () => {
+                await overrideCircleAnvil(chain);
+            });
+
+            it(`Mint USDC (${chain})`, async () => {
+                await mintUsdcForTest(chain, "69420000000000");
             });
         }
     });

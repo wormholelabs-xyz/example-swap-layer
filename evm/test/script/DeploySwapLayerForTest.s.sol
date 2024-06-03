@@ -32,7 +32,7 @@ contract DeploySwapLayerForTest is Script {
     address cctpTokenMessenger = vm.envAddress("RELEASE_TOKEN_MESSENGER");
     address traderJoeRouterAddress = address(0);
 
-    // Matching Enginec
+    // Matching Engine.
     bytes32 matchingEngineAddress = vm.envBytes32("RELEASE_ME_ADDRESS");
     bytes32 matchingEngineMintRecipient = vm.envBytes32("RELEASE_ME_MINT_RECIPIENT");
 
