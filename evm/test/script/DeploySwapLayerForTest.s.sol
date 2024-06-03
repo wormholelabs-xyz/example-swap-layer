@@ -72,6 +72,8 @@ contract DeploySwapLayerForTest is Script {
                 initAuctionFee: 75e4 // $0.75
             })
         );
+
+        ITokenRouter(router).setCctpAllowance(type(uint256).max);
     }
 
     function deployTokenRouter() public returns (address) {
