@@ -11,6 +11,8 @@ export const RELAYER_PRIVATE_KEY =
 export const GUARDIAN_PRIVATE_KEY =
     "cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0";
 
+export const ATTESTATION_TYPE_LL = 0;
+
 // Avalanche Mainnet Fork
 export const EVM_LOCALHOSTS = {
     Ethereum: "http://127.0.0.1:8548",
