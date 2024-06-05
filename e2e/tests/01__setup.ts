@@ -1,6 +1,6 @@
 import { assert } from "chai";
 import * as swapLayerSdk from "../../solana/ts/src/swapLayer";
-import { Connection, PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { Connection, SystemProgram } from "@solana/web3.js";
 import {
     expectIxOk,
     PAYER_KEYPAIR,
@@ -123,7 +123,7 @@ describe("Setup", () => {
     describe("Evm Network Setup", function () {
         for (const chain of REGISTERED_EVM_CHAINS) {
             it(`Modify Core Bridge (${chain})`, async () => {
-                await overrideWormholeAnvil(chain);
+                await overrideWormholeAnvil(chain, 0);
             });
 
             it(`Modify Circle Contracts (${chain})`, async () => {

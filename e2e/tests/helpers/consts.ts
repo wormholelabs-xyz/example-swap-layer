@@ -10,6 +10,7 @@ export const RELAYER_PRIVATE_KEY =
     "0xe485d098507f54e7733a205420dfddbe58db035fa577fc294ebd14db90767a52";
 export const GUARDIAN_PRIVATE_KEY =
     "cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0";
+export const GUARDIAN_SET_INDEX = 0;
 
 export const ATTESTATION_TYPE_LL = 0;
 

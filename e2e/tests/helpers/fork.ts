@@ -3,11 +3,19 @@ import { assert } from "chai";
 import { GUARDIAN_PRIVATE_KEY, circleContract, wormholeContract, usdcContract } from ".";
 import { Chain } from "@wormhole-foundation/sdk-base";
 
-export async function overrideWormholeAnvil(chain: Chain): Promise<void> {
+export async function overrideWormholeAnvil(chain: Chain, guardianSetIndex: number): Promise<void> {
     const { provider, contract: coreBridge } = wormholeContract(chain);
 
-    const guardianSetIndex = await coreBridge.getCurrentGuardianSetIndex();
     const abiCoder = ethers.utils.defaultAbiCoder;
+
+    const currGuardianSetIndex = await coreBridge.getCurrentGuardianSetIndex();
+    if (currGuardianSetIndex != guardianSetIndex) {
+        await provider.send("anvil_setStorageAt", [
+            coreBridge.address,
+            ethers.utils.hexZeroPad("0x3", 32),
+            ethers.utils.hexZeroPad("0x0", 32),
+        ]);
+    }
 
     // get slot for Guardian Set at the current index
     const guardianSetSlot = ethers.utils.keccak256(
@@ -57,6 +65,10 @@ export async function overrideWormholeAnvil(chain: Chain): Promise<void> {
     // Confirm guardian set override
     const guardians = await coreBridge.getGuardianSet(guardianSetIndex).then(
         (guardianSet: any) => guardianSet[0], // first element is array of keys
+    );
+    assert(
+        guardianSetIndex == (await coreBridge.getCurrentGuardianSetIndex()),
+        "Guardian set index should be set",
     );
     assert(guardians.length === 1, "Guardian set length should be 1");
     assert(guardians[0] === devnetGuardian, "Guardian set should be devnet key");
