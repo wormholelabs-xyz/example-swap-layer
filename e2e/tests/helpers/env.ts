@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { parse as envParse } from "envfile";
 import { Chain } from "@wormhole-foundation/sdk-base";
-import { EVM_CONFIG, EVM_LOCALHOSTS, EVM_PRIVATE_KEY } from "./";
+import { EVM_CONFIG, EVM_LOCALHOSTS, EVM_PRIVATE_KEY, RELAYER_PRIVATE_KEY } from "./";
 import { ethers } from "ethers";
 import { abi as swapLayerAbi } from "../../../evm/out/ISwapLayer.sol/ISwapLayer.json";
 import { abi as wormholeAbi } from "../../../evm/out/IWormhole.sol/IWormhole.json";
@@ -60,9 +60,12 @@ function baseContract(
 export function evmSwapLayerConfig(chain: Chain): {
     provider: ethers.providers.JsonRpcProvider;
     wallet: ethers.Wallet;
+    relayer: ethers.Wallet;
     contract: ethers.Contract;
 } {
-    return baseContract(chain, swapLayerAbi, EVM_CONFIG[chain].swapLayer);
+    const base = baseContract(chain, swapLayerAbi, EVM_CONFIG[chain].swapLayer);
+
+    return { ...base, relayer: new ethers.Wallet(RELAYER_PRIVATE_KEY, base.provider) };
 }
 
 export function wormholeContract(chain: Chain): {
