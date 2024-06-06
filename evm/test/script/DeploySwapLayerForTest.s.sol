@@ -109,7 +109,7 @@ contract DeploySwapLayerForTest is Script {
         feeParams = feeParams.gasPriceMargin(PercentageLib.to(25, 0)); // 25% volatility margin
         feeParams = feeParams.maxGasDropoff(GasDropoffLib.to(1 ether)); // 1 SOL/ETH
         feeParams = feeParams.gasDropoffMargin(PercentageLib.to(1, 0)); // 1% volatility margin
-        feeParams = feeParams.gasTokenPrice(1e7); // $10.00
+        feeParams = feeParams.gasTokenPrice(1e8); // $100.00
 
         address swapLayer = address(
             new Proxy(
