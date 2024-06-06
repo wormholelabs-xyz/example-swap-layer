@@ -10,9 +10,14 @@ export const RELAYER_PRIVATE_KEY =
     "0xe485d098507f54e7733a205420dfddbe58db035fa577fc294ebd14db90767a52";
 export const GUARDIAN_PRIVATE_KEY =
     "cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0";
+export const EVM_FEE_RECIPIENT = "0x22d491Bde2303f2f43325b2108D26f1eAbA1e32b";
+
 export const GUARDIAN_SET_INDEX = 0;
 
 export const ATTESTATION_TYPE_LL = 0;
+
+export const ONE_ETHER = 1000000000000000000;
+export const ONE_SOL = 1000000000;
 
 // Avalanche Mainnet Fork
 export const EVM_LOCALHOSTS = {
