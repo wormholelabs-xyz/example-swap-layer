@@ -22,6 +22,7 @@ error InsufficientInputAmount(uint256 input, uint256 minimum);
 error InvalidLength(uint256 received, uint256 expected);
 error ExceedsMaxRelayingFee(uint256 fee, uint256 maximum);
 error ChainNotSupported(uint16 chain);
+error Fuck(bytes path);
 
 abstract contract SwapLayerInitiate is SwapLayerRelayingFees {
   using BytesParsing for bytes;
