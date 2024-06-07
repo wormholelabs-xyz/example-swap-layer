@@ -17,6 +17,7 @@ OWNER_PRIVATE_KEY=0x646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a
 anvil --port 8548 \
     -m "myth like bonus scare over problem client lizard pioneer submit female collect" \
     --fork-url $RELEASE_RPC \
+    --fork-block-number 20034932 \
     > /dev/null &
 
 sleep 2
@@ -32,6 +33,7 @@ forge script $ROOT/DeploySwapLayerForTest.s.sol \
 anvil --port 8549 \
     -m "myth like bonus scare over problem client lizard pioneer submit female collect" \
     --fork-url $RELEASE_RPC \
+    --fork-block-number 15456753 \
     > /dev/null &
 
 sleep 2
