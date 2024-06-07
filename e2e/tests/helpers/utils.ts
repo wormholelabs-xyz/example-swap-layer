@@ -1,4 +1,11 @@
-import { ComputeBudgetProgram, Connection, Keypair, PublicKey } from "@solana/web3.js";
+import {
+    ComputeBudgetProgram,
+    Connection,
+    Keypair,
+    PublicKey,
+    Signer,
+    TransactionInstruction,
+} from "@solana/web3.js";
 import { OrderResponse } from "../../../lib/example-liquidity-layer/evm/ts/src";
 import { deserialize } from "@wormhole-foundation/sdk-definitions";
 import { CORE_BRIDGE_PID } from "../../../solana/ts/tests/helpers";
@@ -9,7 +16,7 @@ import { TokenRouterProgram } from "@wormhole-foundation/example-liquidity-layer
 import { OutputToken, SwapLayerProgram } from "../../../solana/ts/src/swapLayer";
 import { Uint64 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
-import * as splToken from "@solana/spl-token";
+import * as jupiterV6 from "../../../solana/ts/src/jupiterV6";
 
 export function encodeOrderResponse(orderResponse: OrderResponse) {
     // Use ethers AbiCoder to encode the OrderResponse
@@ -86,8 +93,10 @@ export async function stageOutboundOnSolana(
     accounts: {
         senderToken: PublicKey;
         sender?: PublicKey;
+        usdcRefundToken: PublicKey;
     },
     opts: {
+        exactIn?: boolean;
         transferType?: "sender" | "native";
         redeemOption?:
             | { relay: { gasDropoff: number; maxRelayerFee: Uint64 } }
@@ -99,21 +108,22 @@ export async function stageOutboundOnSolana(
     const stagedOutboundSigner = Keypair.generate();
     const stagedOutbound = stagedOutboundSigner.publicKey;
 
-    let { redeemOption, outputToken, transferType } = opts;
+    let { redeemOption, outputToken, transferType, exactIn } = opts;
     redeemOption ??= null;
     outputToken ??= null;
     transferType ??= "sender";
+    exactIn ??= false;
 
     const [, ix] = await swapLayer.stageOutboundIx(
         {
             payer: payer.publicKey,
             ...accounts,
             stagedOutbound,
-            usdcRefundToken: accounts.senderToken,
         },
         {
             transferType,
             amountIn,
+            isExactIn: exactIn,
             targetChain: toChainId(targetChain),
             recipient: foreignRecipientAddress,
             redeemOption,
@@ -127,4 +137,110 @@ export async function stageOutboundOnSolana(
     const preparedOrder = swapLayer.preparedOrderAddress(stagedOutbound);
 
     return { stagedOutbound, stagedCustodyToken, preparedOrder };
+}
+
+const JUPITER_V6_LUT_ADDRESSES = [
+    new PublicKey("GxS6FiQ3mNnAar9HGQ6mxP7t6FcwmHkU7peSeQDUHmpN"),
+    new PublicKey("HsLPzBjqK3SUKQZwHdd2QHVc9cioPrsHNw9GcUDs7WL7"),
+];
+
+const luts: PublicKey[] = [];
+for (let i = 0; i < JUPITER_V6_LUT_ADDRESSES.length; ++i) {
+    luts.push(JUPITER_V6_LUT_ADDRESSES[i]);
+}
+
+export async function completeSwapDirectForTest(
+    swapLayer: SwapLayerProgram,
+    connection: Connection,
+    accounts: {
+        payer: PublicKey;
+        preparedFill: PublicKey;
+        recipient: PublicKey;
+        recipientToken?: PublicKey;
+        dstMint?: PublicKey;
+    },
+    opts: {
+        signers: Signer[];
+        inAmount?: bigint;
+        quotedAmountOut?: bigint;
+        swapResponseModifier: (
+            tokenOwner: PublicKey,
+            opts: jupiterV6.ModifySharedAccountsRouteOpts,
+        ) => Promise<jupiterV6.ModifiedSharedAccountsRoute>;
+        additionalLuts?: PublicKey[];
+    },
+): Promise<undefined> {
+    let { signers, swapResponseModifier, additionalLuts } = opts;
+
+    additionalLuts ??= [];
+
+    const { instruction: cpiInstruction } = await swapResponseModifier(
+        swapLayer.swapAuthorityAddress(accounts.preparedFill),
+        {
+            cpi: true,
+            inAmount: opts.inAmount,
+            quotedOutAmount: opts.quotedAmountOut,
+        },
+    );
+
+    const ix = await swapLayer.completeSwapDirectIx(accounts, { cpiInstruction });
+    const ixs = [
+        ComputeBudgetProgram.setComputeUnitLimit({
+            units: 700_000,
+        }),
+        ix,
+    ];
+
+    const addressLookupTableAccounts = await Promise.all(
+        [...luts, ...additionalLuts].map(async (lookupTableAddress) => {
+            const resp = await connection.getAddressLookupTable(lookupTableAddress);
+            return resp.value!;
+        }),
+    );
+
+    await expectIxOk(swapLayer.connection(), ixs, signers, {
+        addressLookupTableAccounts,
+    });
+}
+
+export async function swapExactInForTest(
+    swapLayer: SwapLayerProgram,
+    accounts: {
+        payer: PublicKey;
+        stagedOutbound: PublicKey;
+        stagedCustodyToken?: PublicKey;
+        preparedOrder?: PublicKey;
+        srcMint?: PublicKey;
+        srcTokenProgram?: PublicKey;
+        preparedBy?: PublicKey;
+        usdcRefundToken?: PublicKey;
+        srcResidual?: PublicKey;
+    },
+    args: {
+        cpiInstruction: TransactionInstruction;
+    },
+    opts: {
+        additionalLuts?: PublicKey[];
+        signers: Signer[];
+    },
+) {
+    let { additionalLuts, signers } = opts;
+    additionalLuts ??= [];
+
+    const ix = await swapLayer.initiateSwapExactInIx(accounts, args);
+
+    const computeIx = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 700_000,
+    });
+
+    const addressLookupTableAccounts = await Promise.all(
+        [...luts, ...additionalLuts].map(async (lookupTableAddress) => {
+            const resp = await swapLayer.connection().getAddressLookupTable(lookupTableAddress);
+            return resp.value!;
+        }),
+    );
+
+    await expectIxOk(swapLayer.connection(), [computeIx, ix], signers, {
+        addressLookupTableAccounts,
+    });
 }
