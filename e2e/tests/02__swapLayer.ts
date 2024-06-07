@@ -1,5 +1,7 @@
 import { assert } from "chai";
-import * as swapLayerSdk from "../../solana/ts/src/swapLayer";
+import * as splToken from "@solana/spl-token";
+import * as fs from "fs";
+import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import { toUniversal } from "@wormhole-foundation/sdk-definitions";
 import { Connection, PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
 import {
@@ -9,8 +11,12 @@ import {
     getUsdcAtaBalance,
     OWNER_KEYPAIR,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
+import {
+    LiquidityLayerTransactionResult,
+    OrderResponse,
+} from "@wormhole-foundation/example-liquidity-layer-evm";
+import { CircleAttester } from "@wormhole-foundation/example-liquidity-layer-evm/helpers";
 import { BN } from "@coral-xyz/anchor";
-import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import { ethers } from "ethers";
 import {
     evmSwapLayerConfig,
@@ -32,17 +38,12 @@ import {
     ONE_SOL,
     swapExactInForTest,
 } from "./helpers";
-import * as splToken from "@solana/spl-token";
-import { InitiateArgs, encodeInitiateArgs, encodeQueriesBatch } from "../../evm/ts-sdk/lib/cjs";
-import {
-    LiquidityLayerTransactionResult,
-    OrderResponse,
-} from "../../lib/example-liquidity-layer/evm/ts/src";
-import { CircleAttester } from "../../lib/example-liquidity-layer/evm/ts/tests/helpers";
 import { GuardianNetwork } from "./helpers/guardians";
+
+import * as swapLayerSdk from "../../solana/ts/src/swapLayer";
+import { InitiateArgs, encodeInitiateArgs, encodeQueriesBatch } from "../../evm/ts-sdk/lib/cjs";
 import { USDT_MINT_ADDRESS, createAta, createLut } from "../../solana/ts/tests/helpers";
 import * as jupiterV6 from "../../solana/ts/src/jupiterV6";
-import * as fs from "fs";
 
 const EVM_CHAIN_PATHWAYS: [Chain, Chain][] = [
     ["Ethereum", "Base"],

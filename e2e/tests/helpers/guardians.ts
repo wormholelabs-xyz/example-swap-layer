@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { parseEvmEvents, parseEvmEvent } from "../../../lib/example-liquidity-layer/evm/ts/src";
+import { parseEvmEvents, parseEvmEvent } from "@wormhole-foundation/example-liquidity-layer-evm";
 import { GUARDIAN_PRIVATE_KEY } from "./consts";
 import { Chain, contracts, toChain } from "@wormhole-foundation/sdk-base";
 import { VAA, serialize, toUniversal } from "@wormhole-foundation/sdk-definitions";
