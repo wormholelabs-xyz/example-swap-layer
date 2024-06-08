@@ -49,7 +49,7 @@ const EVM_CHAIN_PATHWAYS: [Chain, Chain][] = [
     ["Base", "Ethereum"],
 ];
 
-describe("Slow Path", () => {
+describe("Swap Layer", () => {
     const guardianNetwork = new GuardianNetwork(GUARDIAN_SET_INDEX);
     const circleAttester = new CircleAttester();
 
@@ -441,6 +441,118 @@ describe("Slow Path", () => {
                         );
 
                         localVariables = {};
+                    });
+                });
+
+                describe("Relay", function () {
+                    it("Outbound", async function () {
+                        const amountIn = ethers.utils.parseEther("1"); // 1 Ether
+                        const amountOut = 3_700_000_000n; // 3.7k USDC
+                        const targetAmountOut = BigInt(ethers.utils.parseEther(".75").toString()); // .75 Ether
+                        const currentBlockTime = await from.provider
+                            .getBlock("latest")
+                            .then((b) => b.timestamp);
+
+                        let relayingFee: bigint = await from.contract
+                            .batchQueries(
+                                encodeQueriesBatch([
+                                    {
+                                        query: "RelayingFee",
+                                        chain: toChain,
+                                        gasDropoff: 0n,
+                                        outputToken: {
+                                            type: "Gas",
+                                            swapType: "UniswapV3",
+                                            swapCount: 1,
+                                        },
+                                    },
+                                ]),
+                            )
+                            .then((encodedFee) => BigInt(encodedFee));
+
+                        const output: InitiateArgs = {
+                            transferMode: {
+                                mode: "LiquidityLayer",
+                            },
+                            redeemMode: {
+                                mode: "Relay",
+                                gasDropoff: 0n,
+                                maxRelayingFee: relayingFee,
+                            },
+                            outputToken: {
+                                type: "Gas",
+                                swap: {
+                                    deadline: currentBlockTime + 60,
+                                    limitAmount: targetAmountOut,
+                                    type: {
+                                        id: "UniswapV3",
+                                        firstPoolId: 500,
+                                        path: [],
+                                    },
+                                },
+                            },
+                            isExactIn: true,
+                            inputToken: {
+                                type: "Gas",
+                                swap: {
+                                    deadline: currentBlockTime + 60,
+                                    limitAmount: amountOut - relayingFee,
+                                    type: {
+                                        id: "UniswapV3",
+                                        firstPoolId: 500,
+                                        path: [],
+                                    },
+                                },
+                            },
+                        };
+
+                        const balanceBefore = await from.wallet.getBalance();
+
+                        const receipt = await from.contract
+                            .initiate(
+                                toChainId(toChain),
+                                toUniversal(fromChain, from.wallet.address).address,
+                                encodeInitiateArgs(output),
+                                { value: amountIn },
+                            )
+                            .then((tx) => tx.wait());
+                        assert.isNotEmpty(receipt);
+
+                        const balanceAfter = await from.wallet.getBalance();
+                        assert.isTrue(
+                            balanceBefore
+                                .sub(balanceAfter)
+                                .eq(amountIn.add(receipt.effectiveGasPrice.mul(receipt.gasUsed))),
+                        );
+
+                        // Fetch the vaa and cctp attestation.
+                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
+                            toChainId(fromChain),
+                            fromConfig.tokenRouter,
+                            fromConfig.coreBridge,
+                            receipt,
+                            await circleContract(fromChain).then(
+                                (c) => c.messageTransmitter.address,
+                            ),
+                        );
+
+                        // Create a signed VAA and circle attestation.
+                        const fillVaa = await guardianNetwork.observeEvm(
+                            from.provider,
+                            fromChain,
+                            receipt,
+                        );
+
+                        const orderResponse: OrderResponse = {
+                            encodedWormholeMessage: Buffer.from(fillVaa),
+                            circleBridgeMessage: result.circleMessage!,
+                            circleAttestation: circleAttester.createAttestation(
+                                result.circleMessage!,
+                            ),
+                        };
+                        localVariables["orderResponse"] = orderResponse;
+                        localVariables["amountOut"] = targetAmountOut;
+                        localVariables["relayingFee"] = relayingFee;
                     });
                 });
             });
