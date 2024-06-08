@@ -6,7 +6,7 @@ import {
     Signer,
     TransactionInstruction,
 } from "@solana/web3.js";
-import { OrderResponse } from "../../../lib/example-liquidity-layer/evm/ts/src";
+import { OrderResponse } from "@wormhole-foundation/example-liquidity-layer-evm";
 import { deserialize } from "@wormhole-foundation/sdk-definitions";
 import { CORE_BRIDGE_PID } from "../../../solana/ts/tests/helpers";
 import { expectIxOk, postVaa } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
