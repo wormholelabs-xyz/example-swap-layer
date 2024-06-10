@@ -149,7 +149,7 @@ for (let i = 0; i < JUPITER_V6_LUT_ADDRESSES.length; ++i) {
     luts.push(JUPITER_V6_LUT_ADDRESSES[i]);
 }
 
-export async function completeSwapDirectForTest(
+export async function completeSwapForTest(
     swapLayer: SwapLayerProgram,
     connection: Connection,
     accounts: {
@@ -160,6 +160,7 @@ export async function completeSwapDirectForTest(
         dstMint?: PublicKey;
     },
     opts: {
+        redeemMode: "direct" | "relay";
         signers: Signer[];
         inAmount?: bigint;
         quotedAmountOut?: bigint;
@@ -183,7 +184,13 @@ export async function completeSwapDirectForTest(
         },
     );
 
-    const ix = await swapLayer.completeSwapDirectIx(accounts, { cpiInstruction });
+    let ix;
+    if (opts.redeemMode === "direct") {
+        ix = await swapLayer.completeSwapDirectIx(accounts, { cpiInstruction });
+    } else if (opts.redeemMode === "relay") {
+        ix = await swapLayer.completeSwapRelayIx(accounts, { cpiInstruction });
+    }
+
     const ixs = [
         ComputeBudgetProgram.setComputeUnitLimit({
             units: 700_000,
