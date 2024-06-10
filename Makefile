@@ -5,13 +5,13 @@ clean:
 
 .PHONY: fast-transfer-sync
 fast-transfer-sync:
-	git submodule update --checkout
+	git submodule update --init --checkout --recursive
 	git submodule sync --recursive
 
 .PHONY: fast-transfer-clean
-fast-transfer-clean: fast-transfer-sync
-	cd lib/example-liquidity-layer/solana && $(MAKE) clean
-	cd lib/example-liquidity-layer/evm && $(MAKE) clean
+fast-transfer-clean:
+	rm -rf lib/example-liquidity-layer
+	$(MAKE) fast-transfer-sync
 
 .PHONY: fast-transfer-setup
 fast-transfer-setup: fast-transfer-sync
