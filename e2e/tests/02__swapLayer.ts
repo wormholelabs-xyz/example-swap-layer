@@ -15,7 +15,7 @@ import {
     LiquidityLayerTransactionResult,
     OrderResponse,
 } from "@wormhole-foundation/example-liquidity-layer-evm";
-import { CircleAttester } from "@wormhole-foundation/example-liquidity-layer-evm/helpers";
+import { CircleAttester } from "@wormhole-foundation/example-liquidity-layer-evm/testing";
 import { BN } from "@coral-xyz/anchor";
 import { ethers } from "ethers";
 import {
