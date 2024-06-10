@@ -1,6 +1,15 @@
+
+.PHONY: build
+build: node_modules
+	cd evm && $(MAKE)
+	cd solana && $(MAKE) && $(MAKE) anchor-build-idl
+	npm run build
+
 .PHONY: clean
-clean:
-	$(MAKE) fast-transfer-clean
+clean: fast-transfer-clean
+	cd evm && $(MAKE) clean
+	cd solana && $(MAKE) clean 
+	npm run clean
 	rm -rf node_modules
 
 .PHONY: fast-transfer-sync

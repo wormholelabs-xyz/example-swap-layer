@@ -5,7 +5,8 @@
   "main": "lib/cjs/index.js",
   "module": "lib/esm/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
+    "clean":"rm -rf dist"
   },
   "author": "",
   "license": "ISC",

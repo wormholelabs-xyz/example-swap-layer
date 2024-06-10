@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "clean": "npm run clean --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "generate": "npm run generate --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
