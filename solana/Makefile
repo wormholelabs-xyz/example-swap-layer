@@ -46,7 +46,7 @@ cargo-test: fast-transfer-sync
 anchor-test: anchor-test-setup
 	anchor test -- --features integration-test
 
-.PHONy: anchor-test-setup
+.PHONY: anchor-test-setup
 anchor-test-setup: ../node_modules $(CLONED_PROGRAMS)
 
 .PHONY: anchor-build-idl
