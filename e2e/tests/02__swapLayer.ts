@@ -2,11 +2,7 @@ import { BN } from "@coral-xyz/anchor";
 import * as splToken from "@solana/spl-token";
 import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
-    LiquidityLayerTransactionResult,
-    OrderResponse,
-} from "@wormhole-foundation/example-liquidity-layer-evm";
-import { CircleAttester } from "@wormhole-foundation/example-liquidity-layer-evm/testing";
-import {
+    CircleAttester,
     LOCALHOST,
     OWNER_KEYPAIR,
     PAYER_KEYPAIR,
@@ -23,26 +19,24 @@ import {
     EVM_CONFIG,
     EVM_FEE_RECIPIENT,
     GUARDIAN_SET_INDEX,
+    GuardianNetwork,
     ONE_ETHER,
     ONE_SOL,
     SOLANA_SWAP_LAYER_ID,
     USDC_MINT_ADDRESS,
     USDT_ETH,
-    circleContract,
     completeSwapForTest,
     encodeOrderResponse,
     evmSwapLayerConfig,
-    getCircleMessageSolana,
     getUsdtAtaBalance,
     getUsdtBalanceEthereum,
+    initiateOnEvmSwapLayer,
+    initiateOnSolanaSwapLayer,
     postSignedVaa,
     redeemFillOnSolana,
-    stageOutboundOnSolana,
-    swapExactInForTest,
     usdcContract,
     usdtContract,
 } from "./helpers";
-import { GuardianNetwork } from "./helpers/guardians";
 
 import { InitiateArgs, encodeInitiateArgs, encodeQueriesBatch } from "../../evm/ts-sdk/lib/cjs";
 import * as jupiterV6 from "../../solana/ts/src/jupiterV6";
@@ -54,10 +48,10 @@ const EVM_CHAIN_PATHWAYS: [Chain, Chain][] = [
     ["Base", "Ethereum"],
 ];
 
-describe("Swap Layer", () => {
-    const guardianNetwork = new GuardianNetwork(GUARDIAN_SET_INDEX);
-    const circleAttester = new CircleAttester();
+const GUARDIAN_NETWORK = new GuardianNetwork(GUARDIAN_SET_INDEX);
+const CIRCLE_ATTESTER = new CircleAttester();
 
+describe("Swap Layer", () => {
     // Solana.
     const solanaPayer = PAYER_KEYPAIR;
     const solanaRelayer = Keypair.generate();
@@ -121,43 +115,17 @@ describe("Swap Layer", () => {
                             from.wallet.address,
                         );
 
-                        const receipt = await from.contract
-                            .initiate(
-                                toChainId(toChain),
-                                toUniversal(fromChain, from.wallet.address).address,
-                                encodeInitiateArgs(output),
-                            )
-                            .then((tx) => tx.wait());
-                        assert.isNotEmpty(receipt);
+                        const { orderResponse } = await initiateOnEvmSwapLayer(
+                            encodeInitiateArgs(output),
+                            toUniversal(fromChain, to.wallet.address),
+                            fromChain,
+                            toChain,
+                            from.contract,
+                        );
 
                         const balanceAfter = await fromUsdc.contract.balanceOf(from.wallet.address);
                         assert.equal(balanceBefore.sub(balanceAfter).toNumber(), amountIn);
 
-                        // Fetch the vaa and cctp attestation.
-                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                            toChainId(fromChain),
-                            fromConfig.tokenRouter,
-                            fromConfig.coreBridge,
-                            receipt,
-                            await circleContract(fromChain).then(
-                                (c) => c.messageTransmitter.address,
-                            ),
-                        );
-
-                        // Create a signed VAA and circle attestation.
-                        const fillVaa = await guardianNetwork.observeEvm(
-                            from.provider,
-                            fromChain,
-                            receipt,
-                        );
-
-                        const orderResponse: OrderResponse = {
-                            encodedWormholeMessage: Buffer.from(fillVaa),
-                            circleBridgeMessage: result.circleMessage!,
-                            circleAttestation: circleAttester.createAttestation(
-                                result.circleMessage!,
-                            ),
-                        };
                         localVariables["orderResponse"] = orderResponse;
                         localVariables["amountIn"] = amountIn;
                     });
@@ -236,14 +204,13 @@ describe("Swap Layer", () => {
                             from.wallet.address,
                         );
 
-                        const receipt = await from.contract
-                            .initiate(
-                                toChainId(toChain),
-                                toUniversal(fromChain, to.wallet.address).address,
-                                encodeInitiateArgs(output),
-                            )
-                            .then((tx) => tx.wait());
-                        assert.isNotEmpty(receipt);
+                        const { orderResponse } = await initiateOnEvmSwapLayer(
+                            encodeInitiateArgs(output),
+                            toUniversal(fromChain, to.wallet.address),
+                            fromChain,
+                            toChain,
+                            from.contract,
+                        );
 
                         const balanceAfter = await fromUsdc.contract.balanceOf(from.wallet.address);
                         assert.equal(
@@ -251,31 +218,6 @@ describe("Swap Layer", () => {
                             amountIn + relayingFee,
                         );
 
-                        // Fetch the vaa and cctp attestation.
-                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                            toChainId(fromChain),
-                            fromConfig.tokenRouter,
-                            fromConfig.coreBridge,
-                            receipt,
-                            await circleContract(fromChain).then(
-                                (c) => c.messageTransmitter.address,
-                            ),
-                        );
-
-                        // Create a signed VAA and circle attestation.
-                        const fillVaa = await guardianNetwork.observeEvm(
-                            from.provider,
-                            fromChain,
-                            receipt,
-                        );
-
-                        const orderResponse: OrderResponse = {
-                            encodedWormholeMessage: Buffer.from(fillVaa),
-                            circleBridgeMessage: result.circleMessage!,
-                            circleAttestation: circleAttester.createAttestation(
-                                result.circleMessage!,
-                            ),
-                        };
                         localVariables["orderResponse"] = orderResponse;
                         localVariables["amountIn"] = amountIn;
                         localVariables["relayingFee"] = relayingFee;
@@ -374,15 +316,14 @@ describe("Swap Layer", () => {
 
                         const balanceBefore = await from.wallet.getBalance();
 
-                        const receipt = await from.contract
-                            .initiate(
-                                toChainId(toChain),
-                                toUniversal(fromChain, from.wallet.address).address,
-                                encodeInitiateArgs(output),
-                                { value: amountIn },
-                            )
-                            .then((tx) => tx.wait());
-                        assert.isNotEmpty(receipt);
+                        const { orderResponse, receipt } = await initiateOnEvmSwapLayer(
+                            encodeInitiateArgs(output),
+                            toUniversal(fromChain, to.wallet.address),
+                            fromChain,
+                            toChain,
+                            from.contract,
+                            { value: amountIn },
+                        );
 
                         const balanceAfter = await from.wallet.getBalance();
                         assert.isTrue(
@@ -391,31 +332,6 @@ describe("Swap Layer", () => {
                                 .eq(amountIn.add(receipt.effectiveGasPrice.mul(receipt.gasUsed))),
                         );
 
-                        // Fetch the vaa and cctp attestation.
-                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                            toChainId(fromChain),
-                            fromConfig.tokenRouter,
-                            fromConfig.coreBridge,
-                            receipt,
-                            await circleContract(fromChain).then(
-                                (c) => c.messageTransmitter.address,
-                            ),
-                        );
-
-                        // Create a signed VAA and circle attestation.
-                        const fillVaa = await guardianNetwork.observeEvm(
-                            from.provider,
-                            fromChain,
-                            receipt,
-                        );
-
-                        const orderResponse: OrderResponse = {
-                            encodedWormholeMessage: Buffer.from(fillVaa),
-                            circleBridgeMessage: result.circleMessage!,
-                            circleAttestation: circleAttester.createAttestation(
-                                result.circleMessage!,
-                            ),
-                        };
                         localVariables["orderResponse"] = orderResponse;
                         localVariables["amountOut"] = targetAmountOut;
                     });
@@ -513,15 +429,14 @@ describe("Swap Layer", () => {
 
                         const balanceBefore = await from.wallet.getBalance();
 
-                        const receipt = await from.contract
-                            .initiate(
-                                toChainId(toChain),
-                                toUniversal(fromChain, from.wallet.address).address,
-                                encodeInitiateArgs(output),
-                                { value: amountIn },
-                            )
-                            .then((tx) => tx.wait());
-                        assert.isNotEmpty(receipt);
+                        const { orderResponse, receipt } = await initiateOnEvmSwapLayer(
+                            encodeInitiateArgs(output),
+                            toUniversal(fromChain, to.wallet.address),
+                            fromChain,
+                            toChain,
+                            from.contract,
+                            { value: amountIn },
+                        );
 
                         const balanceAfter = await from.wallet.getBalance();
                         assert.isTrue(
@@ -530,31 +445,6 @@ describe("Swap Layer", () => {
                                 .eq(amountIn.add(receipt.effectiveGasPrice.mul(receipt.gasUsed))),
                         );
 
-                        // Fetch the vaa and cctp attestation.
-                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                            toChainId(fromChain),
-                            fromConfig.tokenRouter,
-                            fromConfig.coreBridge,
-                            receipt,
-                            await circleContract(fromChain).then(
-                                (c) => c.messageTransmitter.address,
-                            ),
-                        );
-
-                        // Create a signed VAA and circle attestation.
-                        const fillVaa = await guardianNetwork.observeEvm(
-                            from.provider,
-                            fromChain,
-                            receipt,
-                        );
-
-                        const orderResponse: OrderResponse = {
-                            encodedWormholeMessage: Buffer.from(fillVaa),
-                            circleBridgeMessage: result.circleMessage!,
-                            circleAttestation: circleAttester.createAttestation(
-                                result.circleMessage!,
-                            ),
-                        };
                         localVariables["orderResponse"] = orderResponse;
                         localVariables["amountOut"] = targetAmountOut;
                         localVariables["relayingFee"] = relayingFee;
@@ -699,67 +589,22 @@ describe("Swap Layer", () => {
         describe("Usdc", function () {
             describe("Direct", function () {
                 it("Outbound", async function () {
-                    const amountIn = 20_000_000_000; // 20k USDC
-                    const senderToken = splToken.getAssociatedTokenAddressSync(
-                        solanaSwapLayer.usdcMint,
-                        solanaPayer.publicKey,
-                    );
+                    const amountIn = 20_000_000_000n; // 20k USDC
                     const senderBefore = await getUsdcAtaBalance(connection, solanaPayer.publicKey);
 
-                    const { stagedOutbound, stagedCustodyToken, preparedOrder } =
-                        await stageOutboundOnSolana(
-                            solanaSwapLayer,
-                            BigInt(amountIn),
-                            toChain,
-                            Array.from(toUniversal(toChain, to.wallet.address).address),
-                            solanaPayer,
-                            {
-                                senderToken,
-                                usdcRefundToken: senderToken,
-                            },
-                        );
+                    const orderResponse = await initiateOnSolanaSwapLayer(
+                        solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        {},
+                    );
 
                     // Confirm that the 20k was staged.
                     const senderAfter = await getUsdcAtaBalance(connection, solanaPayer.publicKey);
-                    assert.equal(senderBefore - senderAfter, BigInt(amountIn));
+                    assert.equal(senderBefore - senderAfter, amountIn);
 
-                    // Send the transfer.
-                    const initiateIx = await solanaSwapLayer.initiateTransferIx({
-                        payer: solanaPayer.publicKey,
-                        preparedOrder,
-                        stagedOutbound,
-                        stagedCustodyToken,
-                    });
-
-                    await expectIxOk(connection, [initiateIx], [solanaPayer]);
-
-                    const ix = await solanaTokenRouter.placeMarketOrderCctpIx(
-                        {
-                            payer: solanaPayer.publicKey,
-                            preparedOrder: preparedOrder,
-                        },
-                        {
-                            targetChain: toChainId(toChain),
-                        },
-                    );
-
-                    await expectIxOk(connection, [ix], [solanaPayer]);
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeSolana(
-                        connection,
-                        solanaTokenRouter.coreMessageAddress(preparedOrder),
-                    );
-                    const circleMessage = await getCircleMessageSolana(
-                        solanaTokenRouter,
-                        preparedOrder,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: fillVaa,
-                        circleBridgeMessage: circleMessage,
-                        circleAttestation: circleAttester.createAttestation(circleMessage),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountIn"] = amountIn;
                 });
@@ -796,7 +641,7 @@ describe("Swap Layer", () => {
 
             describe("Relay", function () {
                 it("Outbound", async function () {
-                    const amountIn = 20_000_000_000; // 20k USDC
+                    const amountIn = 20_000_000_000n; // 20k USDC
                     const denormGasDropoff = ONE_SOL;
 
                     // Calculate the relayer fee.
@@ -807,74 +652,29 @@ describe("Swap Layer", () => {
                         { type: "Usdc" },
                     );
 
-                    const senderToken = splToken.getAssociatedTokenAddressSync(
-                        solanaSwapLayer.usdcMint,
-                        solanaPayer.publicKey,
-                    );
                     const senderBefore = await getUsdcAtaBalance(connection, solanaPayer.publicKey);
 
-                    const { stagedOutbound, stagedCustodyToken, preparedOrder } =
-                        await stageOutboundOnSolana(
-                            solanaSwapLayer,
-                            BigInt(amountIn),
-                            toChain,
-                            Array.from(toUniversal(toChain, to.wallet.address).address),
-                            solanaPayer,
-                            {
-                                senderToken,
-                                usdcRefundToken: senderToken,
-                            },
-                            {
-                                redeemOption: {
-                                    relay: {
-                                        gasDropoff: denormGasDropoff / 1000, // normalize by 1e3
-                                        maxRelayerFee: new BN(expectedRelayerFee.toString()),
-                                    },
+                    const orderResponse = await initiateOnSolanaSwapLayer(
+                        solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        {},
+                        {
+                            redeemOption: {
+                                relay: {
+                                    gasDropoff: denormGasDropoff / 1000, // normalize by 1e3
+                                    maxRelayerFee: new BN(expectedRelayerFee.toString()),
                                 },
                             },
-                        );
+                        },
+                    );
 
                     // Confirm that the 20k was staged.
                     const senderAfter = await getUsdcAtaBalance(connection, solanaPayer.publicKey);
                     assert.equal(senderBefore - senderAfter, BigInt(amountIn) + expectedRelayerFee);
 
-                    // Send the transfer.
-                    const initiateIx = await solanaSwapLayer.initiateTransferIx({
-                        payer: solanaPayer.publicKey,
-                        preparedOrder,
-                        stagedOutbound,
-                        stagedCustodyToken,
-                    });
-
-                    await expectIxOk(connection, [initiateIx], [solanaPayer]);
-
-                    const ix = await solanaTokenRouter.placeMarketOrderCctpIx(
-                        {
-                            payer: solanaPayer.publicKey,
-                            preparedOrder: preparedOrder,
-                        },
-                        {
-                            targetChain: toChainId(toChain),
-                        },
-                    );
-
-                    await expectIxOk(connection, [ix], [solanaPayer]);
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeSolana(
-                        connection,
-                        solanaTokenRouter.coreMessageAddress(preparedOrder),
-                    );
-                    const circleMessage = await getCircleMessageSolana(
-                        solanaTokenRouter,
-                        preparedOrder,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: fillVaa,
-                        circleBridgeMessage: circleMessage,
-                        circleAttestation: circleAttester.createAttestation(circleMessage),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountIn"] = amountIn;
                     localVariables["gasDropoff"] = denormGasDropoff;
@@ -955,71 +755,24 @@ describe("Swap Layer", () => {
                         },
                     };
 
-                    const { stagedOutbound, stagedCustodyToken, preparedOrder } =
-                        await stageOutboundOnSolana(
-                            solanaSwapLayer,
-                            BigInt(amountIn),
-                            toChain,
-                            Array.from(toUniversal(toChain, to.wallet.address).address),
-                            solanaPayer,
-                            {
-                                senderToken,
-                                usdcRefundToken: splToken.getAssociatedTokenAddressSync(
-                                    solanaSwapLayer.usdcMint,
-                                    solanaPayer.publicKey,
-                                ),
-                            },
-                            { transferType: "native", outputToken: outputToken, exactIn: true },
-                        );
-
-                    const swapAuthority = solanaSwapLayer.swapAuthorityAddress(preparedOrder);
-                    const { instruction: cpiInstruction } =
-                        await modifyWsolToUsdcSwapResponseForTest(swapAuthority, {
-                            cpi: true,
+                    const orderResponse = await initiateOnSolanaSwapLayer(
+                        solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        { senderToken, srcMint: splToken.NATIVE_MINT },
+                        {
+                            transferType: "native",
+                            outputToken: outputToken,
+                            exactIn: true,
                             inAmount: amountIn,
                             quotedOutAmount: amountOut,
                             slippageBps: 200,
-                        });
-
-                    await swapExactInForTest(
-                        solanaSwapLayer,
-                        {
-                            payer: solanaPayer.publicKey,
-                            stagedOutbound,
-                            stagedCustodyToken,
-                            preparedOrder,
-                        },
-                        { cpiInstruction },
-                        { signers: [solanaPayer] },
-                    );
-
-                    const ix = await solanaTokenRouter.placeMarketOrderCctpIx(
-                        {
-                            payer: solanaPayer.publicKey,
-                            preparedOrder: preparedOrder,
-                        },
-                        {
-                            targetChain: toChainId(toChain),
+                            swapResponseModifier: modifyWsolToUsdcSwapResponseForTest,
                         },
                     );
 
-                    await expectIxOk(connection, [ix], [solanaPayer]);
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeSolana(
-                        connection,
-                        solanaTokenRouter.coreMessageAddress(preparedOrder),
-                    );
-                    const circleMessage = await getCircleMessageSolana(
-                        solanaTokenRouter,
-                        preparedOrder,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: fillVaa,
-                        circleBridgeMessage: circleMessage,
-                        circleAttestation: circleAttester.createAttestation(circleMessage),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountOut"] = targetAmountOut;
                 });
@@ -1050,6 +803,10 @@ describe("Swap Layer", () => {
                     const amountIn = 1_000_000_000n; // 1 SOL
                     const amountOut = 150_000_000n; // 150 USDC
                     const targetAmountOut = 25_000_000_000_000_000n; // 0.025 ETH
+                    const senderToken = splToken.getAssociatedTokenAddressSync(
+                        splToken.NATIVE_MINT,
+                        solanaPayer.publicKey,
+                    );
                     const currentBlockTime = await to.provider
                         .getBlock("latest")
                         .then((b) => b.timestamp);
@@ -1075,78 +832,27 @@ describe("Swap Layer", () => {
                         outputToken,
                     );
 
-                    const { stagedOutbound, stagedCustodyToken, preparedOrder } =
-                        await stageOutboundOnSolana(
-                            solanaSwapLayer,
-                            BigInt(amountIn),
-                            toChain,
-                            Array.from(toUniversal(toChain, to.wallet.address).address),
-                            solanaPayer,
-                            {
-                                senderToken: null,
-                                usdcRefundToken: splToken.getAssociatedTokenAddressSync(
-                                    solanaSwapLayer.usdcMint,
-                                    solanaPayer.publicKey,
-                                ),
-                            },
-                            {
-                                transferType: "native",
-                                outputToken: outputToken,
-                                exactIn: true,
-                                redeemOption: {
-                                    relay: { gasDropoff: 0, maxRelayerFee: expectedRelayerFee },
-                                },
-                            },
-                        );
-
-                    const swapAuthority = solanaSwapLayer.swapAuthorityAddress(preparedOrder);
-                    const { instruction: cpiInstruction } =
-                        await modifyWsolToUsdcSwapResponseForTest(swapAuthority, {
-                            cpi: true,
-                            inAmount: amountIn,
-                            quotedOutAmount: amountOut - expectedRelayerFee,
-                            slippageBps: 200,
-                        });
-
-                    await swapExactInForTest(
+                    const orderResponse = await initiateOnSolanaSwapLayer(
                         solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        { senderToken, srcMint: splToken.NATIVE_MINT },
                         {
-                            payer: solanaPayer.publicKey,
-                            stagedOutbound,
-                            stagedCustodyToken,
-                            preparedOrder,
-                        },
-                        { cpiInstruction },
-                        { signers: [solanaPayer] },
-                    );
-
-                    const ix = await solanaTokenRouter.placeMarketOrderCctpIx(
-                        {
-                            payer: solanaPayer.publicKey,
-                            preparedOrder: preparedOrder,
-                        },
-                        {
-                            targetChain: toChainId(toChain),
+                            transferType: "native",
+                            outputToken: outputToken,
+                            redeemOption: {
+                                relay: { gasDropoff: 0, maxRelayerFee: expectedRelayerFee },
+                            },
+                            exactIn: true,
+                            inAmount: amountIn,
+                            quotedOutAmount: amountOut,
+                            slippageBps: 200,
+                            swapResponseModifier: modifyWsolToUsdcSwapResponseForTest,
                         },
                     );
 
-                    await expectIxOk(connection, [ix], [solanaPayer]);
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeSolana(
-                        connection,
-                        solanaTokenRouter.coreMessageAddress(preparedOrder),
-                    );
-                    const circleMessage = await getCircleMessageSolana(
-                        solanaTokenRouter,
-                        preparedOrder,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: fillVaa,
-                        circleBridgeMessage: circleMessage,
-                        circleAttestation: circleAttester.createAttestation(circleMessage),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountOut"] = targetAmountOut;
                     localVariables["relayingFee"] = expectedRelayerFee;
@@ -1214,81 +920,30 @@ describe("Swap Layer", () => {
                         },
                     };
 
-                    const { stagedOutbound, stagedCustodyToken, preparedOrder } =
-                        await stageOutboundOnSolana(
-                            solanaSwapLayer,
-                            BigInt(amountIn),
-                            toChain,
-                            Array.from(toUniversal(toChain, to.wallet.address).address),
-                            solanaPayer,
-                            {
-                                senderToken,
-                                srcMint: USDT_MINT_ADDRESS,
-                                usdcRefundToken: splToken.getAssociatedTokenAddressSync(
-                                    solanaSwapLayer.usdcMint,
-                                    solanaPayer.publicKey,
-                                ),
-                            },
-                            { transferType: "sender", outputToken: outputToken, exactIn: true },
-                        );
+                    // Fetch usdt balance before.
+                    const senderBefore = await getUsdtAtaBalance(connection, solanaPayer.publicKey);
 
-                    // Fetch the custody token mint and balance of USDT.
-                    const { mint: custodyMint, amount } = await splToken.getAccount(
-                        connection,
-                        stagedCustodyToken,
-                    );
-                    assert.isTrue(custodyMint.equals(new PublicKey(USDT_MINT_ADDRESS)));
-                    assert.equal(amount, BigInt(amountIn));
-
-                    const swapAuthority = solanaSwapLayer.swapAuthorityAddress(preparedOrder);
-                    const { instruction: cpiInstruction } =
-                        await modifyUsdtToUsdcSwapResponseForTest(swapAuthority, {
-                            cpi: true,
+                    const orderResponse = await initiateOnSolanaSwapLayer(
+                        solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        { senderToken, srcMint: USDT_MINT_ADDRESS },
+                        {
+                            transferType: "sender",
+                            outputToken: outputToken,
+                            exactIn: true,
                             inAmount: amountIn,
                             quotedOutAmount: amountOut,
                             slippageBps: 50,
-                        });
-
-                    await swapExactInForTest(
-                        solanaSwapLayer,
-                        {
-                            payer: solanaPayer.publicKey,
-                            stagedOutbound,
-                            stagedCustodyToken,
-                            preparedOrder,
-                            srcMint: USDT_MINT_ADDRESS,
-                        },
-                        { cpiInstruction },
-                        { signers: [solanaPayer] },
-                    );
-
-                    const ix = await solanaTokenRouter.placeMarketOrderCctpIx(
-                        {
-                            payer: solanaPayer.publicKey,
-                            preparedOrder: preparedOrder,
-                        },
-                        {
-                            targetChain: toChainId(toChain),
+                            swapResponseModifier: modifyUsdtToUsdcSwapResponseForTest,
                         },
                     );
 
-                    await expectIxOk(connection, [ix], [solanaPayer]);
+                    const senderAfter = await getUsdtAtaBalance(connection, solanaPayer.publicKey);
+                    assert.equal(senderBefore - senderAfter, amountIn);
 
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeSolana(
-                        connection,
-                        solanaTokenRouter.coreMessageAddress(preparedOrder),
-                    );
-                    const circleMessage = await getCircleMessageSolana(
-                        solanaTokenRouter,
-                        preparedOrder,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: fillVaa,
-                        circleBridgeMessage: circleMessage,
-                        circleAttestation: circleAttester.createAttestation(circleMessage),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountOut"] = targetAmountOut;
                 });
@@ -1351,39 +1006,17 @@ describe("Swap Layer", () => {
 
                     const balanceBefore = await fromUsdc.contract.balanceOf(from.wallet.address);
 
-                    const receipt = await from.contract
-                        .initiate(
-                            toChainId(toChain),
-                            toUniversal(toChain, solanaRecipient.publicKey.toBuffer()).address,
-                            encodeInitiateArgs(output),
-                        )
-                        .then((tx) => tx.wait());
-                    assert.isNotEmpty(receipt);
+                    const { orderResponse } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                    );
 
                     const balanceAfter = await fromUsdc.contract.balanceOf(from.wallet.address);
                     assert.equal(balanceBefore.sub(balanceAfter).toNumber(), amountIn);
 
-                    // Fetch the vaa and cctp attestation.
-                    const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                        toChainId(fromChain),
-                        fromConfig.tokenRouter,
-                        fromConfig.coreBridge,
-                        receipt,
-                        await circleContract(fromChain).then((c) => c.messageTransmitter.address),
-                    );
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeEvm(
-                        from.provider,
-                        fromChain,
-                        receipt,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: Buffer.from(fillVaa),
-                        circleBridgeMessage: result.circleMessage!,
-                        circleAttestation: circleAttester.createAttestation(result.circleMessage!),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountIn"] = amountIn;
                 });
@@ -1482,14 +1115,13 @@ describe("Swap Layer", () => {
 
                     const balanceBefore = await fromUsdc.contract.balanceOf(from.wallet.address);
 
-                    const receipt = await from.contract
-                        .initiate(
-                            toChainId(toChain),
-                            toUniversal(toChain, solanaRecipient.publicKey.toBuffer()).address,
-                            encodeInitiateArgs(output),
-                        )
-                        .then((tx) => tx.wait());
-                    assert.isNotEmpty(receipt);
+                    const { orderResponse } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                    );
 
                     const balanceAfter = await fromUsdc.contract.balanceOf(from.wallet.address);
                     assert.equal(
@@ -1497,27 +1129,6 @@ describe("Swap Layer", () => {
                         amountIn + relayingFee,
                     );
 
-                    // Fetch the vaa and cctp attestation.
-                    const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                        toChainId(fromChain),
-                        fromConfig.tokenRouter,
-                        fromConfig.coreBridge,
-                        receipt,
-                        await circleContract(fromChain).then((c) => c.messageTransmitter.address),
-                    );
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeEvm(
-                        from.provider,
-                        fromChain,
-                        receipt,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: Buffer.from(fillVaa),
-                        circleBridgeMessage: result.circleMessage!,
-                        circleAttestation: circleAttester.createAttestation(result.circleMessage!),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["amountIn"] = amountIn;
                     localVariables["relayingFee"] = relayingFee;
@@ -1640,15 +1251,14 @@ describe("Swap Layer", () => {
 
                     const balanceBefore = await from.wallet.getBalance();
 
-                    const receipt = await from.contract
-                        .initiate(
-                            toChainId(toChain),
-                            toUniversal(toChain, solanaRecipient.publicKey.toBuffer()).address,
-                            encodeInitiateArgs(output),
-                            { value: amountIn },
-                        )
-                        .then((tx) => tx.wait());
-                    assert.isNotEmpty(receipt);
+                    const { orderResponse, receipt } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                        { value: amountIn },
+                    );
 
                     const balanceAfter = await from.wallet.getBalance();
                     assert.isTrue(
@@ -1657,27 +1267,6 @@ describe("Swap Layer", () => {
                             .eq(amountIn.add(receipt.effectiveGasPrice.mul(receipt.gasUsed))),
                     );
 
-                    // Fetch the vaa and cctp attestation.
-                    const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                        toChainId(fromChain),
-                        fromConfig.tokenRouter,
-                        fromConfig.coreBridge,
-                        receipt,
-                        await circleContract(fromChain).then((c) => c.messageTransmitter.address),
-                    );
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeEvm(
-                        from.provider,
-                        fromChain,
-                        receipt,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: Buffer.from(fillVaa),
-                        circleBridgeMessage: result.circleMessage!,
-                        circleAttestation: circleAttester.createAttestation(result.circleMessage!),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["limitAmount"] = targetMinAmountOut;
                 });
@@ -1793,15 +1382,14 @@ describe("Swap Layer", () => {
 
                     const balanceBefore = await from.wallet.getBalance();
 
-                    const receipt = await from.contract
-                        .initiate(
-                            toChainId(toChain),
-                            toUniversal(toChain, solanaRecipient.publicKey.toBuffer()).address,
-                            encodeInitiateArgs(output),
-                            { value: amountIn },
-                        )
-                        .then((tx) => tx.wait());
-                    assert.isNotEmpty(receipt);
+                    const { orderResponse, receipt } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                        { value: amountIn },
+                    );
 
                     const balanceAfter = await from.wallet.getBalance();
                     assert.isTrue(
@@ -1810,27 +1398,6 @@ describe("Swap Layer", () => {
                             .eq(amountIn.add(receipt.effectiveGasPrice.mul(receipt.gasUsed))),
                     );
 
-                    // Fetch the vaa and cctp attestation.
-                    const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                        toChainId(fromChain),
-                        fromConfig.tokenRouter,
-                        fromConfig.coreBridge,
-                        receipt,
-                        await circleContract(fromChain).then((c) => c.messageTransmitter.address),
-                    );
-
-                    // Create a signed VAA and circle attestation.
-                    const fillVaa = await guardianNetwork.observeEvm(
-                        from.provider,
-                        fromChain,
-                        receipt,
-                    );
-
-                    const orderResponse: OrderResponse = {
-                        encodedWormholeMessage: Buffer.from(fillVaa),
-                        circleBridgeMessage: result.circleMessage!,
-                        circleAttestation: circleAttester.createAttestation(result.circleMessage!),
-                    };
                     localVariables["orderResponse"] = orderResponse;
                     localVariables["limitAmount"] = targetMinAmountOut;
                     localVariables["relayingFee"] = relayingFee;
@@ -1906,155 +1473,124 @@ describe("Swap Layer", () => {
             });
 
             describe("Direct", function () {
-                describe("Outbound", function () {
-                    it("Outbound", async function () {
-                        const amountIn = 49_600_000n; // 49.6 USDT
-                        const amountOut = 49_400_000n; // 49.4 USDC
-                        const targetAmountOut = 49_200_000n; // 49.2 USDT
-                        const currentBlockTime = await from.provider
-                            .getBlock("latest")
-                            .then((b) => b.timestamp);
+                it("Outbound", async function () {
+                    const amountIn = 49_600_000n; // 49.6 USDT
+                    const amountOut = 49_400_000n; // 49.4 USDC
+                    const targetAmountOut = 49_200_000n; // 49.2 USDT
+                    const currentBlockTime = await from.provider
+                        .getBlock("latest")
+                        .then((b) => b.timestamp);
 
-                        const output: InitiateArgs = {
-                            transferMode: {
-                                mode: "LiquidityLayer",
-                            },
-                            redeemMode: {
-                                mode: "Direct",
-                            },
-                            outputToken: {
-                                type: "Other",
-                                address: toUniversal(toChain, USDT_MINT_ADDRESS.toString()),
-                                swap: {
-                                    deadline: 0,
-                                    limitAmount: targetAmountOut,
-                                    type: {
-                                        id: "GenericSolana",
-                                        dexProgramId: { isSome: false },
-                                    },
+                    const output: InitiateArgs = {
+                        transferMode: {
+                            mode: "LiquidityLayer",
+                        },
+                        redeemMode: {
+                            mode: "Direct",
+                        },
+                        outputToken: {
+                            type: "Other",
+                            address: toUniversal(toChain, USDT_MINT_ADDRESS.toString()),
+                            swap: {
+                                deadline: 0,
+                                limitAmount: targetAmountOut,
+                                type: {
+                                    id: "GenericSolana",
+                                    dexProgramId: { isSome: false },
                                 },
                             },
-                            isExactIn: true,
-                            inputToken: {
-                                type: "Other",
-                                address: USDT_ETH,
-                                approveCheck: true,
-                                acquireMode: {
-                                    mode: "Preapproved",
+                        },
+                        isExactIn: true,
+                        inputToken: {
+                            type: "Other",
+                            address: USDT_ETH,
+                            approveCheck: true,
+                            acquireMode: {
+                                mode: "Preapproved",
+                            },
+                            amount: BigInt(amountIn),
+                            swap: {
+                                deadline: currentBlockTime + 60,
+                                limitAmount: amountOut,
+                                type: {
+                                    id: "UniswapV3",
+                                    firstPoolId: 500,
+                                    path: [],
                                 },
-                                amount: BigInt(amountIn),
-                                swap: {
-                                    deadline: currentBlockTime + 60,
-                                    limitAmount: amountOut,
-                                    type: {
-                                        id: "UniswapV3",
-                                        firstPoolId: 500,
-                                        path: [],
-                                    },
-                                },
                             },
-                        };
+                        },
+                    };
 
-                        const balanceBefore = await getUsdtBalanceEthereum(from.wallet);
+                    const balanceBefore = await getUsdtBalanceEthereum(from.wallet);
 
-                        const receipt = await from.contract
-                            .initiate(
-                                toChainId(toChain),
-                                toUniversal(toChain, solanaRecipient.publicKey.toBuffer()).address,
-                                encodeInitiateArgs(output),
-                            )
-                            .then((tx) => tx.wait());
-                        assert.isNotEmpty(receipt);
+                    const { orderResponse } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                    );
 
-                        const balanceAfter = await getUsdtBalanceEthereum(from.wallet);
-                        assert.isTrue(
-                            balanceBefore.sub(balanceAfter).eq(ethers.BigNumber.from(amountIn)),
-                        );
+                    const balanceAfter = await getUsdtBalanceEthereum(from.wallet);
+                    assert.isTrue(
+                        balanceBefore.sub(balanceAfter).eq(ethers.BigNumber.from(amountIn)),
+                    );
 
-                        // Fetch the vaa and cctp attestation.
-                        const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
-                            toChainId(fromChain),
-                            fromConfig.tokenRouter,
-                            fromConfig.coreBridge,
-                            receipt,
-                            await circleContract(fromChain).then(
-                                (c) => c.messageTransmitter.address,
-                            ),
-                        );
+                    localVariables["orderResponse"] = orderResponse;
+                    localVariables["amountOut"] = targetAmountOut;
+                });
 
-                        // Create a signed VAA and circle attestation.
-                        const fillVaa = await guardianNetwork.observeEvm(
-                            from.provider,
-                            fromChain,
-                            receipt,
-                        );
+                it("Inbound", async function () {
+                    // Post the Fill on Solana and derive the account.
+                    const vaaKey = await postSignedVaa(
+                        connection,
+                        solanaRelayer,
+                        localVariables["orderResponse"].encodedWormholeMessage,
+                    );
 
-                        const orderResponse: OrderResponse = {
-                            encodedWormholeMessage: Buffer.from(fillVaa),
-                            circleBridgeMessage: result.circleMessage!,
-                            circleAttestation: circleAttester.createAttestation(
-                                result.circleMessage!,
-                            ),
-                        };
-                        localVariables["orderResponse"] = orderResponse;
-                        localVariables["amountOut"] = targetAmountOut;
-                    });
+                    // Redeem fill on Solana.
+                    const preparedFill = await redeemFillOnSolana(
+                        connection,
+                        solanaRelayer,
+                        solanaTokenRouter,
+                        tokenRouterLkupTable,
+                        {
+                            vaa: vaaKey,
+                        },
+                        {
+                            encodedCctpMessage: localVariables["orderResponse"].circleBridgeMessage,
+                            cctpAttestation: localVariables["orderResponse"].circleAttestation,
+                        },
+                    );
 
-                    it("Inbound", async function () {
-                        // Post the Fill on Solana and derive the account.
-                        const vaaKey = await postSignedVaa(
-                            connection,
-                            solanaRelayer,
-                            localVariables["orderResponse"].encodedWormholeMessage,
-                        );
+                    // Fetch usdt balance before.
+                    const recipientBefore = await getUsdtAtaBalance(
+                        connection,
+                        solanaRecipient.publicKey,
+                    );
 
-                        // Redeem fill on Solana.
-                        const preparedFill = await redeemFillOnSolana(
-                            connection,
-                            solanaRelayer,
-                            solanaTokenRouter,
-                            tokenRouterLkupTable,
-                            {
-                                vaa: vaaKey,
-                            },
-                            {
-                                encodedCctpMessage:
-                                    localVariables["orderResponse"].circleBridgeMessage,
-                                cctpAttestation: localVariables["orderResponse"].circleAttestation,
-                            },
-                        );
+                    await completeSwapForTest(
+                        solanaSwapLayer,
+                        connection,
+                        {
+                            payer: solanaPayer.publicKey,
+                            preparedFill,
+                            recipient: solanaRecipient.publicKey,
+                            dstMint: USDT_MINT_ADDRESS,
+                        },
+                        {
+                            redeemMode: "direct",
+                            signers: [solanaPayer],
+                            quotedAmountOut: localVariables["amountOut"],
+                            swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        },
+                    );
 
-                        // Fetch usdt balance before.
-                        const recipientBefore = await getUsdtAtaBalance(
-                            connection,
-                            solanaRecipient.publicKey,
-                        );
-
-                        await completeSwapForTest(
-                            solanaSwapLayer,
-                            connection,
-                            {
-                                payer: solanaPayer.publicKey,
-                                preparedFill,
-                                recipient: solanaRecipient.publicKey,
-                                dstMint: USDT_MINT_ADDRESS,
-                            },
-                            {
-                                redeemMode: "direct",
-                                signers: [solanaPayer],
-                                quotedAmountOut: localVariables["amountOut"],
-                                swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
-                            },
-                        );
-
-                        const recipientAfter = await getUsdtAtaBalance(
-                            connection,
-                            solanaRecipient.publicKey,
-                        );
-                        assert.isTrue(
-                            recipientAfter - recipientBefore >= localVariables["amountOut"],
-                        );
-                    });
+                    const recipientAfter = await getUsdtAtaBalance(
+                        connection,
+                        solanaRecipient.publicKey,
+                    );
+                    assert.isTrue(recipientAfter - recipientBefore >= localVariables["amountOut"]);
                 });
             });
         });
