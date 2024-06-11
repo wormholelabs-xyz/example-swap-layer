@@ -26,7 +26,6 @@ import {
     USDC_MINT_ADDRESS,
     USDT_ETH,
     completeSwapForTest,
-    encodeOrderResponse,
     evmSwapLayerConfig,
     getUsdtAtaBalance,
     getUsdtBalanceEthereum,
@@ -136,11 +135,7 @@ describe("Swap Layer", () => {
 
                         // Perform the direct redeem.
                         const receipt = await to.contract
-                            .redeem(
-                                ATTESTATION_TYPE_LL,
-                                encodeOrderResponse(localVariables["orderResponse"]),
-                                [],
-                            )
+                            .redeem([], localVariables["orderResponse"])
                             .then((tx) => tx.wait());
 
                         const balanceAfter = await toUsdc.contract.balanceOf(to.wallet.address);
@@ -234,12 +229,9 @@ describe("Swap Layer", () => {
                         // Perform the relay from the relayer wallet.
                         const receipt = await to.contract
                             .connect(to.relayer)
-                            .redeem(
-                                ATTESTATION_TYPE_LL,
-                                encodeOrderResponse(localVariables["orderResponse"]),
-                                [],
-                                { value: localVariables["gasDropoff"] },
-                            )
+                            .redeem([], localVariables["orderResponse"], {
+                                value: localVariables["gasDropoff"],
+                            })
                             .then((tx) => tx.wait());
 
                         const balanceAfter = await toUsdc.contract.balanceOf(to.wallet.address);
@@ -342,11 +334,7 @@ describe("Swap Layer", () => {
 
                         // Perform the direct redeem.
                         const receipt = await to.contract
-                            .redeem(
-                                ATTESTATION_TYPE_LL,
-                                encodeOrderResponse(localVariables["orderResponse"]),
-                                [],
-                            )
+                            .redeem([], localVariables["orderResponse"])
                             .then((tx) => tx.wait());
 
                         const etherAfter = await to.provider.getBalance(to.wallet.address);
@@ -459,12 +447,9 @@ describe("Swap Layer", () => {
                         // Perform the relay from the relayer wallet.
                         const receipt = await to.contract
                             .connect(to.relayer)
-                            .redeem(
-                                ATTESTATION_TYPE_LL,
-                                encodeOrderResponse(localVariables["orderResponse"]),
-                                [],
-                                { value: localVariables["gasDropoff"] },
-                            )
+                            .redeem([], localVariables["orderResponse"], {
+                                value: localVariables["gasDropoff"],
+                            })
                             .then((tx) => tx.wait());
 
                         const etherAfter = await to.provider.getBalance(to.wallet.address);
@@ -616,11 +601,7 @@ describe("Swap Layer", () => {
 
                     // Perform the direct redeem.
                     const receipt = await to.contract
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                        )
+                        .redeem([], localVariables["orderResponse"])
                         .then((tx) => tx.wait());
 
                     const balanceAfter = await toUsdc.contract.balanceOf(to.wallet.address);
@@ -695,12 +676,7 @@ describe("Swap Layer", () => {
                     // Perform the relay from the relayer wallet.
                     await to.contract
                         .connect(to.relayer)
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                            { value: gasDropoff },
-                        )
+                        .redeem([], localVariables["orderResponse"], { value: gasDropoff })
                         .then((tx) => tx.wait());
 
                     const balanceAfter = await toUsdc.contract.balanceOf(to.wallet.address);
@@ -784,11 +760,7 @@ describe("Swap Layer", () => {
 
                     // Perform the direct redeem.
                     const receipt = await to.contract
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                        )
+                        .redeem([], localVariables["orderResponse"])
                         .then((tx) => tx.wait());
 
                     const etherAfter = await to.provider.getBalance(to.wallet.address);
@@ -869,12 +841,9 @@ describe("Swap Layer", () => {
                     // Perform the relay from the relayer wallet.
                     const receipt = await to.contract
                         .connect(to.relayer)
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                            { value: localVariables["gasDropoff"] },
-                        )
+                        .redeem([], localVariables["orderResponse"], {
+                            value: localVariables["gasDropoff"],
+                        })
                         .then((tx) => tx.wait());
 
                     const etherAfter = await to.provider.getBalance(to.wallet.address);
@@ -955,11 +924,7 @@ describe("Swap Layer", () => {
 
                     // Perform the direct redeem.
                     const receipt = await to.contract
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                        )
+                        .redeem([], localVariables["orderResponse"])
                         .then((tx) => tx.wait());
 
                     const balanceAfter = await getUsdtBalanceEthereum(to.wallet);
@@ -1047,12 +1012,9 @@ describe("Swap Layer", () => {
                     // Perform the relay from the relayer wallet.
                     const receipt = await to.contract
                         .connect(to.relayer)
-                        .redeem(
-                            ATTESTATION_TYPE_LL,
-                            encodeOrderResponse(localVariables["orderResponse"]),
-                            [],
-                            { value: localVariables["gasDropoff"] },
-                        )
+                        .redeem([], localVariables["orderResponse"], {
+                            value: localVariables["gasDropoff"],
+                        })
                         .then((tx) => tx.wait());
 
                     const balanceAfter = await toUsdt.contract.balanceOf(to.wallet.address);

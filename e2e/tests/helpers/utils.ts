@@ -23,7 +23,7 @@ import { ethers } from "ethers";
 import { TokenRouterProgram } from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
 import { OutputToken, SwapLayerProgram } from "../../../solana/ts/src/swapLayer";
 import { Uint64 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
-import { Chain, circle, toChainId } from "@wormhole-foundation/sdk-base";
+import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import * as jupiterV6 from "../../../solana/ts/src/jupiterV6";
 import {
     EVM_CONFIG,
@@ -33,23 +33,6 @@ import {
     circleContract,
     usdtContract,
 } from ".";
-import { encodeInitiateArgs } from "../../../evm/ts-sdk/lib/cjs";
-
-export function encodeOrderResponse(orderResponse: OrderResponse) {
-    // Use ethers AbiCoder to encode the OrderResponse
-    const abiCoder = new ethers.utils.AbiCoder();
-    const encodedOrderResponse = abiCoder.encode(
-        ["tuple(bytes, bytes, bytes)"],
-        [
-            [
-                orderResponse.encodedWormholeMessage,
-                orderResponse.circleBridgeMessage,
-                orderResponse.circleAttestation,
-            ],
-        ],
-    );
-    return encodedOrderResponse;
-}
 
 export async function postSignedVaa(
     connection: Connection,
