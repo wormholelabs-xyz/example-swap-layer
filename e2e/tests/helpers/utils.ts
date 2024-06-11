@@ -6,10 +6,15 @@ import {
     Signer,
     TransactionInstruction,
 } from "@solana/web3.js";
+import * as splToken from "@solana/spl-token";
 import { OrderResponse } from "@wormhole-foundation/example-liquidity-layer-evm";
 import { deserialize } from "@wormhole-foundation/sdk-definitions";
-import { CORE_BRIDGE_PID } from "../../../solana/ts/tests/helpers";
-import { expectIxOk, postVaa } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
+import { CORE_BRIDGE_PID, USDT_MINT_ADDRESS } from "../../../solana/ts/tests/helpers";
+import {
+    USDC_MINT_ADDRESS,
+    expectIxOk,
+    postVaa,
+} from "@wormhole-foundation/example-liquidity-layer-solana/testing";
 import { utils as coreUtils } from "@wormhole-foundation/sdk-solana-core";
 import { ethers } from "ethers";
 import { TokenRouterProgram } from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
@@ -17,6 +22,7 @@ import { OutputToken, SwapLayerProgram } from "../../../solana/ts/src/swapLayer"
 import { Uint64 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
 import * as jupiterV6 from "../../../solana/ts/src/jupiterV6";
+import { USDT_ETH, baseContract, usdtContract } from ".";
 
 export function encodeOrderResponse(orderResponse: OrderResponse) {
     // Use ethers AbiCoder to encode the OrderResponse
@@ -93,6 +99,7 @@ export async function stageOutboundOnSolana(
     accounts: {
         senderToken: PublicKey;
         sender?: PublicKey;
+        srcMint?: PublicKey;
         usdcRefundToken: PublicKey;
     },
     opts: {
@@ -250,4 +257,17 @@ export async function swapExactInForTest(
     await expectIxOk(swapLayer.connection(), [computeIx, ix], signers, {
         addressLookupTableAccounts,
     });
+}
+
+export async function getUsdtAtaBalance(connection, owner) {
+    return splToken
+        .getAccount(connection, splToken.getAssociatedTokenAddressSync(USDT_MINT_ADDRESS, owner))
+        .then((token) => token.amount)
+        .catch(() => 0n);
+}
+
+export async function getUsdtBalanceEthereum(wallet: ethers.Wallet): Promise<ethers.BigNumber> {
+    const { contract } = usdtContract();
+
+    return contract.balanceOf(wallet.address);
 }

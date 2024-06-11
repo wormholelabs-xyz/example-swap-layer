@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { parse as envParse } from "envfile";
 import { Chain } from "@wormhole-foundation/sdk-base";
-import { EVM_CONFIG, EVM_LOCALHOSTS, EVM_PRIVATE_KEY, RELAYER_PRIVATE_KEY } from "./";
+import { EVM_CONFIG, EVM_LOCALHOSTS, EVM_PRIVATE_KEY, RELAYER_PRIVATE_KEY, USDT_ETH } from "./";
 import { ethers } from "ethers";
 import { abi as swapLayerAbi } from "../../../evm/out/ISwapLayer.sol/ISwapLayer.json";
 import { abi as wormholeAbi } from "../../../evm/out/IWormhole.sol/IWormhole.json";
@@ -41,7 +41,7 @@ export function parseSwapLayerEnvFile(envPath: string): SwapLayerEnv {
     };
 }
 
-function baseContract(
+export function baseContract(
     chain: Chain,
     abi: any,
     address: string,
@@ -112,5 +112,18 @@ export function usdcContract(chain: Chain) {
             "function masterMinter() external view returns (address)",
         ],
         EVM_CONFIG[chain].usdc,
+    );
+}
+
+export function usdtContract() {
+    return baseContract(
+        "Ethereum",
+        [
+            "function allowance(address owner, address spender) external view returns (uint256)",
+            "function approve(address spender, uint256 amount) returns (bool)",
+            "function balanceOf(address account) external view returns (uint256)",
+            "function transfer(address recipient, uint256 amount) external returns (bool)",
+        ],
+        USDT_ETH,
     );
 }
