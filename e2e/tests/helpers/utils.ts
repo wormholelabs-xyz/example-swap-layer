@@ -7,11 +7,14 @@ import {
     TransactionInstruction,
 } from "@solana/web3.js";
 import * as splToken from "@solana/spl-token";
-import { OrderResponse } from "@wormhole-foundation/example-liquidity-layer-evm";
-import { deserialize } from "@wormhole-foundation/sdk-definitions";
+import {
+    OrderResponse,
+    LiquidityLayerTransactionResult,
+} from "@wormhole-foundation/example-liquidity-layer-evm";
+import { UniversalAddress, deserialize, toUniversal } from "@wormhole-foundation/sdk-definitions";
 import { CORE_BRIDGE_PID, USDT_MINT_ADDRESS } from "../../../solana/ts/tests/helpers";
 import {
-    USDC_MINT_ADDRESS,
+    CircleAttester,
     expectIxOk,
     postVaa,
 } from "@wormhole-foundation/example-liquidity-layer-solana/testing";
@@ -20,9 +23,17 @@ import { ethers } from "ethers";
 import { TokenRouterProgram } from "@wormhole-foundation/example-liquidity-layer-solana/tokenRouter";
 import { OutputToken, SwapLayerProgram } from "../../../solana/ts/src/swapLayer";
 import { Uint64 } from "@wormhole-foundation/example-liquidity-layer-solana/common";
-import { Chain, toChainId } from "@wormhole-foundation/sdk-base";
+import { Chain, circle, toChainId } from "@wormhole-foundation/sdk-base";
 import * as jupiterV6 from "../../../solana/ts/src/jupiterV6";
-import { USDT_ETH, baseContract, usdtContract } from ".";
+import {
+    EVM_CONFIG,
+    GUARDIAN_SET_INDEX,
+    GuardianNetwork,
+    USDC_MINT_ADDRESS,
+    circleContract,
+    usdtContract,
+} from ".";
+import { encodeInitiateArgs } from "../../../evm/ts-sdk/lib/cjs";
 
 export function encodeOrderResponse(orderResponse: OrderResponse) {
     // Use ethers AbiCoder to encode the OrderResponse
@@ -90,6 +101,16 @@ export async function redeemFillOnSolana(
     return tokenRouter.preparedFillAddress(accounts.vaa);
 }
 
+type StageOutboundArgs = {
+    exactIn?: boolean;
+    transferType?: "sender" | "native";
+    redeemOption?:
+        | { relay: { gasDropoff: number; maxRelayerFee: Uint64 } }
+        | { payload: Uint8Array | Buffer }
+        | null;
+    outputToken?: OutputToken | null;
+};
+
 export async function stageOutboundOnSolana(
     swapLayer: SwapLayerProgram,
     amountIn: bigint,
@@ -102,15 +123,7 @@ export async function stageOutboundOnSolana(
         srcMint?: PublicKey;
         usdcRefundToken: PublicKey;
     },
-    opts: {
-        exactIn?: boolean;
-        transferType?: "sender" | "native";
-        redeemOption?:
-            | { relay: { gasDropoff: number; maxRelayerFee: Uint64 } }
-            | { payload: Uint8Array | Buffer }
-            | null;
-        outputToken?: OutputToken | null;
-    } = {},
+    opts: StageOutboundArgs = {},
 ) {
     const stagedOutboundSigner = Keypair.generate();
     const stagedOutbound = stagedOutboundSigner.publicKey;
@@ -270,4 +283,163 @@ export async function getUsdtBalanceEthereum(wallet: ethers.Wallet): Promise<eth
     const { contract } = usdtContract();
 
     return contract.balanceOf(wallet.address);
+}
+
+export async function initiateOnEvmSwapLayer(
+    encodedArgs: Uint8Array,
+    recipient: UniversalAddress,
+    fromChain: Chain,
+    toChain: Chain,
+    contract: ethers.Contract,
+    overrides?: { value: ethers.BigNumber },
+): Promise<{ orderResponse: OrderResponse; receipt: ethers.providers.TransactionReceipt }> {
+    const guardianNetwork = new GuardianNetwork(GUARDIAN_SET_INDEX);
+    const circleAttester = new CircleAttester();
+    const fromConfig = EVM_CONFIG[fromChain];
+
+    if (overrides === undefined) {
+        overrides = { value: ethers.BigNumber.from(0) };
+    }
+
+    const receipt = await contract
+        .initiate(toChainId(toChain), recipient.address, encodedArgs, overrides)
+        .then((tx) => tx.wait());
+
+    // Fetch the vaa and cctp attestation.
+    const result = LiquidityLayerTransactionResult.fromEthersTransactionReceipt(
+        toChainId(fromChain),
+        fromConfig.tokenRouter,
+        fromConfig.coreBridge,
+        receipt,
+        await circleContract(fromChain).then((c) => c.messageTransmitter.address),
+    );
+
+    // Create a signed VAA and circle attestation.
+    const fillVaa = await guardianNetwork.observeEvm(contract.provider, fromChain, receipt);
+
+    return {
+        orderResponse: {
+            encodedWormholeMessage: Buffer.from(fillVaa),
+            circleBridgeMessage: result.circleMessage!,
+            circleAttestation: circleAttester.createAttestation(result.circleMessage!),
+        },
+        receipt,
+    };
+}
+
+type SwapArgs = {
+    swapResponseModifier?: (
+        tokenOwner: PublicKey,
+        opts: jupiterV6.ModifySharedAccountsRouteOpts,
+    ) => Promise<jupiterV6.ModifiedSharedAccountsRoute>;
+    slippageBps?: number;
+    inAmount?: bigint;
+    quotedOutAmount?: bigint;
+};
+
+export async function initiateOnSolanaSwapLayer(
+    swapLayer: SwapLayerProgram,
+    payer: Keypair,
+    amountIn: bigint,
+    toChain: Chain,
+    recipient: UniversalAddress,
+    accounts: {
+        senderToken?: PublicKey;
+        sender?: PublicKey;
+        srcMint?: PublicKey;
+        usdcRefundToken?: PublicKey;
+    },
+    opts: StageOutboundArgs & SwapArgs = {},
+): Promise<OrderResponse> {
+    const connection = swapLayer.connection();
+    const tokenRouter = swapLayer.tokenRouterProgram();
+    const guardianNetwork = new GuardianNetwork(GUARDIAN_SET_INDEX);
+    const circleAttester = new CircleAttester();
+
+    // Accounts.
+    let { senderToken, srcMint, usdcRefundToken } = accounts;
+    srcMint ??= USDC_MINT_ADDRESS;
+    senderToken ??= splToken.getAssociatedTokenAddressSync(srcMint, payer.publicKey);
+    usdcRefundToken ??= splToken.getAssociatedTokenAddressSync(USDC_MINT_ADDRESS, payer.publicKey);
+
+    // Opts.
+    let { redeemOption, outputToken, transferType, exactIn } = opts;
+    let { swapResponseModifier, slippageBps, inAmount, quotedOutAmount } = opts;
+
+    // Opts.
+    const { stagedOutbound, stagedCustodyToken, preparedOrder } = await stageOutboundOnSolana(
+        swapLayer,
+        amountIn,
+        toChain,
+        Array.from(recipient.address),
+        payer,
+        {
+            senderToken,
+            usdcRefundToken,
+            ...accounts,
+        },
+        {
+            redeemOption,
+            outputToken,
+            transferType,
+            exactIn,
+        },
+    );
+
+    if (swapResponseModifier === undefined) {
+        // Send the transfer.
+        const initiateIx = await swapLayer.initiateTransferIx({
+            payer: payer.publicKey,
+            preparedOrder,
+            stagedOutbound,
+            stagedCustodyToken,
+        });
+        await expectIxOk(connection, [initiateIx], [payer]);
+    } else {
+        const swapAuthority = swapLayer.swapAuthorityAddress(preparedOrder);
+        const { instruction: cpiInstruction } = await swapResponseModifier(swapAuthority, {
+            cpi: true,
+            inAmount,
+            quotedOutAmount,
+            slippageBps,
+        });
+
+        await swapExactInForTest(
+            swapLayer,
+            {
+                payer: payer.publicKey,
+                stagedOutbound,
+                stagedCustodyToken,
+                preparedOrder,
+                srcMint,
+            },
+            { cpiInstruction },
+            { signers: [payer] },
+        );
+    }
+
+    const ix = await swapLayer.tokenRouterProgram().placeMarketOrderCctpIx(
+        {
+            payer: payer.publicKey,
+            preparedOrder: preparedOrder,
+        },
+        {
+            targetChain: toChainId(toChain),
+        },
+    );
+
+    await expectIxOk(connection, [ix], [payer]);
+
+    // Create a signed VAA and circle attestation.
+    const fillVaa = await guardianNetwork.observeSolana(
+        connection,
+        tokenRouter.coreMessageAddress(preparedOrder),
+    );
+    const circleMessage = await getCircleMessageSolana(tokenRouter, preparedOrder);
+
+    return {
+        encodedWormholeMessage: fillVaa,
+        circleBridgeMessage: circleMessage,
+        circleAttestation: circleAttester.createAttestation(circleMessage),
+    };
 }

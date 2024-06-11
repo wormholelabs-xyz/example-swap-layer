@@ -2,6 +2,8 @@ import { PublicKey } from "@solana/web3.js";
 import { parseSwapLayerEnvFile } from "./";
 import { uint64ToBN } from "@wormhole-foundation/example-liquidity-layer-solana/common";
 
+export const GUARDIAN_SET_INDEX = 0;
+
 export const SOLANA_SWAP_LAYER_ID = "SwapLayer1111111111111111111111111111111111";
 export const USDC_MINT_ADDRESS = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
@@ -11,8 +13,6 @@ export const RELAYER_PRIVATE_KEY =
 export const GUARDIAN_PRIVATE_KEY =
     "cfb12303a19cde580bb4dd771639b0d26bc68353645571a8cff516ab2ee113a0";
 export const EVM_FEE_RECIPIENT = "0x22d491Bde2303f2f43325b2108D26f1eAbA1e32b";
-
-export const GUARDIAN_SET_INDEX = 0;
 
 export const ATTESTATION_TYPE_LL = 0;
 
