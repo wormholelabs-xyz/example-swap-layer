@@ -585,6 +585,7 @@ describe("Swap Layer", () => {
         // From contracts.
         const to = evmSwapLayerConfig(toChain);
         const toUsdc = usdcContract(toChain);
+        const toUsdt = usdtContract();
 
         describe("Usdc", function () {
             describe("Direct", function () {
@@ -963,6 +964,106 @@ describe("Swap Layer", () => {
 
                     const balanceAfter = await getUsdtBalanceEthereum(to.wallet);
                     assert.isTrue(balanceAfter.sub(balanceBefore).gte(minAmountOut));
+
+                    localVariables = {};
+                });
+            });
+
+            describe("Relay", function () {
+                it("Outbound", async function () {
+                    const amountIn = 50_000_000n; // 50 USDT
+                    const amountOut = 49_800_000n; // 49.8 USDC
+                    const targetAmountOut = 49_000_000n; // 49.6 USDT (account for relayer fee)
+                    const senderToken = splToken.getAssociatedTokenAddressSync(
+                        USDT_MINT_ADDRESS,
+                        solanaPayer.publicKey,
+                    );
+
+                    const currentBlockTime = await to.provider
+                        .getBlock("latest")
+                        .then((b) => b.timestamp);
+
+                    const outputToken: swapLayerSdk.OutputToken = {
+                        type: "Other",
+                        address: toUniversal(toChain, USDT_ETH),
+                        swap: {
+                            deadline: currentBlockTime + 60,
+                            limitAmount: targetAmountOut,
+                            type: {
+                                id: "UniswapV3",
+                                firstPoolId: 500,
+                                path: [],
+                            },
+                        },
+                    };
+
+                    // Calculate the relayer fee.
+                    const peer = await solanaSwapLayer.fetchPeer(toChainId(toChain));
+                    const expectedRelayerFee = swapLayerSdk.calculateRelayerFee(
+                        peer.relayParams,
+                        0n,
+                        outputToken,
+                    );
+
+                    // Fetch usdt balance before.
+                    const senderBefore = await getUsdtAtaBalance(connection, solanaPayer.publicKey);
+
+                    const orderResponse = await initiateOnSolanaSwapLayer(
+                        solanaSwapLayer,
+                        solanaPayer,
+                        amountIn,
+                        toChain,
+                        toUniversal(toChain, to.wallet.address),
+                        { senderToken, srcMint: USDT_MINT_ADDRESS },
+                        {
+                            transferType: "sender",
+                            outputToken: outputToken,
+                            redeemOption: {
+                                relay: { gasDropoff: 0, maxRelayerFee: expectedRelayerFee },
+                            },
+                            exactIn: true,
+                            inAmount: amountIn,
+                            quotedOutAmount: amountOut,
+                            slippageBps: 50,
+                            swapResponseModifier: modifyUsdtToUsdcSwapResponseForTest,
+                        },
+                    );
+
+                    const senderAfter = await getUsdtAtaBalance(connection, solanaPayer.publicKey);
+                    assert.equal(senderBefore - senderAfter, amountIn);
+
+                    localVariables["orderResponse"] = orderResponse;
+                    localVariables["amountOut"] = targetAmountOut;
+                    localVariables["relayingFee"] = expectedRelayerFee;
+                });
+
+                it("Inbound", async function () {
+                    const minAmountOut = ethers.BigNumber.from(
+                        localVariables["amountOut"].toString(),
+                    );
+                    const balanceBefore = await toUsdt.contract.balanceOf(to.wallet.address);
+                    const feeRecipientBefore = await toUsdc.contract.balanceOf(EVM_FEE_RECIPIENT);
+
+                    // Perform the relay from the relayer wallet.
+                    const receipt = await to.contract
+                        .connect(to.relayer)
+                        .redeem(
+                            ATTESTATION_TYPE_LL,
+                            encodeOrderResponse(localVariables["orderResponse"]),
+                            [],
+                            { value: localVariables["gasDropoff"] },
+                        )
+                        .then((tx) => tx.wait());
+
+                    const balanceAfter = await toUsdt.contract.balanceOf(to.wallet.address);
+                    const feeRecipientAfter = await toUsdc.contract.balanceOf(EVM_FEE_RECIPIENT);
+
+                    assert.isTrue(balanceAfter.sub(balanceBefore).gt(minAmountOut));
+                    assert.isTrue(
+                        feeRecipientAfter
+                            .sub(feeRecipientBefore)
+                            .eq(ethers.BigNumber.from(localVariables["relayingFee"])),
+                    );
 
                     localVariables = {};
                 });
@@ -1591,6 +1692,161 @@ describe("Swap Layer", () => {
                         solanaRecipient.publicKey,
                     );
                     assert.isTrue(recipientAfter - recipientBefore >= localVariables["amountOut"]);
+                });
+            });
+
+            describe("Relay", function () {
+                it("Outbound", async function () {
+                    const currentBlockTime = await from.provider
+                        .getBlock("latest")
+                        .then((b) => b.timestamp);
+
+                    let relayingFee: bigint = await from.contract
+                        .batchQueries(
+                            encodeQueriesBatch([
+                                {
+                                    query: "RelayingFee",
+                                    chain: toChain,
+                                    gasDropoff: 0n,
+                                    outputToken: {
+                                        type: "Other",
+                                        swapType: "GenericSolana",
+                                        swapCount: 1,
+                                    },
+                                },
+                            ]),
+                        )
+                        .then((encodedFee) => BigInt(encodedFee));
+
+                    const amountIn = 49_000_000n; // 49 USDT
+                    const targetAmountOut = 47_800_000n; // 47.8 USDT (account for relaying fee)
+                    const amountOut = amountIn - relayingFee - 500_000n;
+
+                    const output: InitiateArgs = {
+                        transferMode: {
+                            mode: "LiquidityLayer",
+                        },
+                        redeemMode: {
+                            mode: "Relay",
+                            gasDropoff: 0n,
+                            maxRelayingFee: relayingFee,
+                        },
+                        outputToken: {
+                            type: "Other",
+                            address: toUniversal(toChain, USDT_MINT_ADDRESS.toString()),
+                            swap: {
+                                deadline: 0,
+                                limitAmount: targetAmountOut,
+                                type: {
+                                    id: "GenericSolana",
+                                    dexProgramId: { isSome: false },
+                                },
+                            },
+                        },
+                        isExactIn: true,
+                        inputToken: {
+                            type: "Other",
+                            address: USDT_ETH,
+                            approveCheck: true,
+                            acquireMode: {
+                                mode: "Preapproved",
+                            },
+                            amount: BigInt(amountIn),
+                            swap: {
+                                deadline: currentBlockTime + 60,
+                                limitAmount: amountOut,
+                                type: {
+                                    id: "UniswapV3",
+                                    firstPoolId: 500,
+                                    path: [],
+                                },
+                            },
+                        },
+                    };
+
+                    const balanceBefore = await getUsdtBalanceEthereum(from.wallet);
+
+                    const { orderResponse } = await initiateOnEvmSwapLayer(
+                        encodeInitiateArgs(output),
+                        toUniversal(toChain, solanaRecipient.publicKey.toBuffer()),
+                        fromChain,
+                        toChain,
+                        from.contract,
+                    );
+
+                    const balanceAfter = await getUsdtBalanceEthereum(from.wallet);
+                    assert.isTrue(
+                        balanceBefore.sub(balanceAfter).eq(ethers.BigNumber.from(amountIn)),
+                    );
+
+                    localVariables["orderResponse"] = orderResponse;
+                    localVariables["amountOut"] = targetAmountOut;
+                    localVariables["relayingFee"] = relayingFee;
+                });
+
+                it("Inbound", async function () {
+                    // Post the Fill on Solana and derive the account.
+                    const vaaKey = await postSignedVaa(
+                        connection,
+                        solanaRelayer,
+                        localVariables["orderResponse"].encodedWormholeMessage,
+                    );
+
+                    // Redeem fill on Solana.
+                    const preparedFill = await redeemFillOnSolana(
+                        connection,
+                        solanaRelayer,
+                        solanaTokenRouter,
+                        tokenRouterLkupTable,
+                        {
+                            vaa: vaaKey,
+                        },
+                        {
+                            encodedCctpMessage: localVariables["orderResponse"].circleBridgeMessage,
+                            cctpAttestation: localVariables["orderResponse"].circleAttestation,
+                        },
+                    );
+
+                    // Fetch usdt balance before.
+                    const recipientBefore = await getUsdtAtaBalance(
+                        connection,
+                        solanaRecipient.publicKey,
+                    );
+                    const feeRecipientBefore = await getUsdcAtaBalance(
+                        connection,
+                        solanaFeeRecipient.publicKey,
+                    );
+
+                    await completeSwapForTest(
+                        solanaSwapLayer,
+                        connection,
+                        {
+                            payer: solanaPayer.publicKey,
+                            preparedFill,
+                            recipient: solanaRecipient.publicKey,
+                            dstMint: USDT_MINT_ADDRESS,
+                        },
+                        {
+                            redeemMode: "relay",
+                            signers: [solanaPayer],
+                            quotedAmountOut: localVariables["amountOut"],
+                            swapResponseModifier: modifyUsdcToUsdtSwapResponseForTest,
+                        },
+                    );
+
+                    const recipientAfter = await getUsdtAtaBalance(
+                        connection,
+                        solanaRecipient.publicKey,
+                    );
+                    const feeRecipientAfter = await getUsdcAtaBalance(
+                        connection,
+                        solanaFeeRecipient.publicKey,
+                    );
+                    assert.isTrue(recipientAfter - recipientBefore >= localVariables["amountOut"]);
+                    assert.equal(
+                        feeRecipientAfter,
+                        feeRecipientBefore + localVariables["relayingFee"],
+                    );
                 });
             });
         });
