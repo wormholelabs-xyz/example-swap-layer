@@ -25,6 +25,9 @@ export const EVM_LOCALHOSTS = {
     Base: "http://127.0.0.1:8549",
 };
 
+// USDT tokens on Ethereum.
+export const USDT_ETH = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+
 export const REGISTERED_EVM_CHAINS = ["Ethereum", "Base"] as const;
 export const EVM_CONFIG = {
     Ethereum: {
