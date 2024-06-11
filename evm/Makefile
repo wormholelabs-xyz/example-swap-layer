@@ -41,4 +41,5 @@ $(foreach dep,$(LIB_DEPS), $(eval $(call install_lib,$(dep))))
 clean:
 	forge clean
 	rm -rf lib
+	rm -rf node_modules
 	@$(MAKE) -C env clean
