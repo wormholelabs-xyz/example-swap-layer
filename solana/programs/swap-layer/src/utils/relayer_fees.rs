@@ -228,7 +228,7 @@ mod test {
     #[test]
     fn test_compound_at_max_int() {
         let base = u64::MAX;
-        let percentage = u32::MAX;
+        let percentage = 1_000_000; // crate::MAX_BPS
         let compounded = compound(percentage, base);
 
         assert_eq!(compounded, None);
