@@ -137,6 +137,7 @@ pub fn initiate_transfer(ctx: Context<InitiateTransfer>) -> Result<()> {
                 },
                 token_program: token_program.to_account_info(),
                 system_program: ctx.accounts.system_program.to_account_info(),
+                target_router_endpoint: ctx.accounts.target_peer.to_account_info(),
             },
             &[
                 Custodian::SIGNER_SEEDS,
