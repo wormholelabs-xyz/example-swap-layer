@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - solana/integration
   pull_request:
 
 env:
