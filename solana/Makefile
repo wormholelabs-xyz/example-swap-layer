@@ -58,6 +58,7 @@ anchor-build-idl:
 cargo-test-all:
 	NETWORK=localnet $(MAKE) cargo-test
 	NETWORK=testnet $(MAKE) cargo-test
+	NETWORK=mainnet $(MAKE) cargo-test
 
 .PHONY: build
 build: fast-transfer-sync

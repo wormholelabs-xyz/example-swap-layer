@@ -17,6 +17,7 @@ no-log-ix-name = []
 cpi = ["no-entrypoint"]
 localnet = ["token-router/localnet"]
 testnet = ["token-router/testnet"]
+mainnet = ["token-router/mainnet"]
 integration-test = ["localnet"]
 idl-build = [
     "localnet",

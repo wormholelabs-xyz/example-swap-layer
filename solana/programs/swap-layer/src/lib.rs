@@ -11,9 +11,16 @@ pub mod state;
 
 pub mod utils;
 
+#[cfg(not(feature = "mainnet"))]
 declare_id!("SwapLayer1111111111111111111111111111111111");
+#[cfg(feature = "mainnet")]
+declare_id!("9Zv8ajzFjacRoYCgCPus4hq3pYjpNa9KkTFQ1sHa1h3d");
 
+#[cfg(not(feature = "mainnet"))]
 const CUSTODIAN_BUMP: u8 = 254;
+#[cfg(feature = "mainnet")]
+const CUSTODIAN_BUMP: u8 = 253;
+
 const COMPLETE_TOKEN_SEED_PREFIX: &[u8] = b"complete";
 
 const SWAP_AUTHORITY_SEED_PREFIX: &[u8] = b"swap-authority";
