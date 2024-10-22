@@ -25,4 +25,8 @@ cd $ROOT/e2e
 
 anchor test --skip-build
 
+EXIT_CODE=$?
+
 pkill anvil
+
+exit $EXIT_CODE
