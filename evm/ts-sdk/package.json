@@ -6,7 +6,7 @@
   "module": "lib/esm/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig-cjs.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist lib node_modules"
   },
   "author": "",
   "license": "ISC",
