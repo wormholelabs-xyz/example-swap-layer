@@ -23,7 +23,7 @@ endef
 .PHONY: build test clean dependencies
 
 build: dependencies
-	forge build
+	forge build --skip test
 
 test: dependencies
 	forge test --fork-url $$TEST_RPC -vvv
