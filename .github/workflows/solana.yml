@@ -66,9 +66,10 @@ jobs:
       - name: Install Anchor
         run: npm i -g @coral-xyz/anchor-cli@${{ env.ANCHOR_VERSION }}
         shell: bash
-      - name: Set default Rust toolchain
-        run: rustup default stable
-        working-directory: ./solana
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
       - name: make anchor-test
         run: make anchor-test
         working-directory: ./solana
@@ -89,9 +90,10 @@ jobs:
           node-version: "20.11.0"
           solana-cli-version: "1.18.15"
           anchor-version: "0.30.1"
-      - name: Set default Rust toolchain
-        run: rustup default stable
-        working-directory: ./solana
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
       - name: make check-build
         run: make check-build
         working-directory: ./solana

@@ -13,7 +13,8 @@ env:
 jobs:
   test:
     name: bash sh/run_test.sh
-    runs-on: ubuntu-latest
+    runs-on:
+      labels: ubuntu-latest-m
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,26 +23,29 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
-      - uses: actions/setup-node@v4
+      - uses: evan-gray/setup-anchor@c748c7e331768b0158e558152de4053e0fde5dc9
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install Solana CLI tools
-        run: sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-        shell: bash
-      - name: Update PATH
-        run: echo "/home/runner/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
-        shell: bash
-      - name: Install Anchor
-        run: npm i -g @coral-xyz/anchor-cli@${{ env.ANCHOR_VERSION }}
-        shell: bash
+          solana-cli-version: ${{ env.SOLANA_VERSION }}
+          anchor-version: ${{ env.ANCHOR_VERSION }}
       - name: make node_modules
         run: make node_modules
-      - name: make build
+      - name: cd evm && make build
         run: make build
         working-directory: ./evm
-      - name: npm run build
+      - name: cd evm/ts-sdk && npm run build
         run: npm run build
         working-directory: ./evm/ts-sdk
-      - name: bash sh/run_test.sh
+      - name: cd solana && make anchor-test-setup
+        run: make anchor-test-setup
+        working-directory: ./solana
+      - name: cd solana && anchor build -- --features integration-test
+        run: anchor build -- --features integration-test
+        working-directory: ./solana
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+      - name: cd e2e && bash sh/run_test.sh
         run: bash sh/run_test.sh
         working-directory: ./e2e

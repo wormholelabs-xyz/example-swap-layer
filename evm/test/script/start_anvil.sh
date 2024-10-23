@@ -13,6 +13,8 @@ OWNER_PRIVATE_KEY=0x646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a
 
 . $ENV/Ethereum.env
 
+echo $RELEASE_RPC
+
 # Ethereum (CCTP).
 anvil --port 8548 \
     -m "myth like bonus scare over problem client lizard pioneer submit female collect" \
@@ -28,6 +30,8 @@ forge script $ROOT/DeploySwapLayerForTest.s.sol \
     --private-key $OWNER_PRIVATE_KEY
 
 . $ENV/Base.env
+
+echo $RELEASE_RPC
 
 # Base (CCTP).
 anvil --port 8549 \
