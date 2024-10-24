@@ -23,11 +23,18 @@ jobs:
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
-      - uses: evan-gray/setup-anchor@c748c7e331768b0158e558152de4053e0fde5dc9
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          solana-cli-version: ${{ env.SOLANA_VERSION }}
-          anchor-version: ${{ env.ANCHOR_VERSION }}
+      - name: Install Solana CLI tools
+        run: sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
+        shell: bash
+      - name: Update PATH
+        run: echo "/home/runner/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+        shell: bash
+      - name: Install Anchor
+        run: npm i -g @coral-xyz/anchor-cli@${{ env.ANCHOR_VERSION }}
+        shell: bash
       - name: make node_modules
         run: make node_modules
       - name: cd evm && make build
