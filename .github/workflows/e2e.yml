@@ -14,7 +14,7 @@ jobs:
   test:
     name: bash sh/run_test.sh
     runs-on:
-      labels: ubuntu-latest-m
+      labels: ubuntu-latest-l
     steps:
       - uses: actions/checkout@v4
         with:

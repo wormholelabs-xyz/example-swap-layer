@@ -16,7 +16,7 @@ OWNER_PRIVATE_KEY=0x646f1ce2fdad0e6deeeb5c7e8e5543bdde65e86029e2fd9fc169899c440a
 echo $RELEASE_RPC
 
 # Ethereum (CCTP).
-anvil --port 8548 \
+anvil --port 8545 \
     -m "myth like bonus scare over problem client lizard pioneer submit female collect" \
     --fork-url $RELEASE_RPC \
     --fork-block-number 20034932 \
@@ -25,7 +25,7 @@ anvil --port 8548 \
 sleep 2
 
 forge script $ROOT/DeploySwapLayerForTest.s.sol \
-    --rpc-url http://localhost:8548 \
+    --rpc-url http://localhost:8545 \
     --broadcast \
     --private-key $OWNER_PRIVATE_KEY
 
@@ -34,7 +34,7 @@ forge script $ROOT/DeploySwapLayerForTest.s.sol \
 echo $RELEASE_RPC
 
 # Base (CCTP).
-anvil --port 8549 \
+anvil --port 8546 \
     -m "myth like bonus scare over problem client lizard pioneer submit female collect" \
     --fork-url $RELEASE_RPC \
     --fork-block-number 15456753 \
@@ -43,7 +43,7 @@ anvil --port 8549 \
 sleep 2
 
 forge script $ROOT/DeploySwapLayerForTest.s.sol \
-    --rpc-url http://localhost:8549 \
+    --rpc-url http://localhost:8546 \
     --broadcast \
     --private-key $OWNER_PRIVATE_KEY
 
